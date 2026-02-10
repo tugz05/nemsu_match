@@ -186,9 +186,10 @@ onMounted(() => {
             <!-- Grid of match cards (similar to dating apps) -->
             <ul v-else class="grid grid-cols-2 gap-3 sm:gap-4">
                 <li
-                    v-for="user in matches"
+                    v-for="(user, idx) in matches"
                     :key="user.id"
-                    class="relative rounded-3xl overflow-hidden bg-gray-200 shadow-sm hover:shadow-xl transition-shadow cursor-pointer aspect-[3/4]"
+                    class="browse-card relative rounded-3xl overflow-hidden bg-gray-200 shadow-sm hover:shadow-xl transition-shadow cursor-pointer aspect-[3/4]"
+                    :style="{ animationDelay: `${Math.min(idx, 11) * 70}ms` }"
                     @click="openProfile(user.id)"
                 >
                     <!-- Photo -->
@@ -257,4 +258,37 @@ onMounted(() => {
         <BottomNav active-tab="home" />
     </div>
 </template>
+
+<style scoped>
+@keyframes browse-card-in {
+    from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.98);
+        filter: blur(1px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        filter: blur(0);
+    }
+}
+
+.browse-card {
+    animation: browse-card-in 420ms ease-out both;
+    will-change: transform, opacity;
+}
+
+.browse-card:hover {
+    transform: translateY(-2px) scale(1.01);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .browse-card {
+        animation: none;
+    }
+    .browse-card:hover {
+        transform: none;
+    }
+}
+</style>
 

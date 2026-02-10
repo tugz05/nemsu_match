@@ -4,6 +4,7 @@ use App\Http\Controllers\AccountController;
 use App\Http\Controllers\Api\AutocompleteController;
 use App\Http\Controllers\Auth\NEMSUOAuthController;
 use App\Http\Controllers\ChatController;
+use App\Http\Controllers\GalleryController;
 use App\Http\Controllers\MatchmakingController;
 use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\NotificationController;
@@ -56,6 +57,11 @@ Route::get('like-you', function () {
         'user' => Auth::user()->only(['id', 'display_name', 'profile_picture']),
     ]);
 })->middleware(['auth', 'verified', 'profile.completed'])->name('likeyou');
+
+// Browse - Suggested matches list
+Route::get('browse', function () {
+    return Inertia::render('Browse');
+})->middleware(['auth', 'verified', 'profile.completed'])->name('browse');
 
 // Announcements
 Route::get('announcements', function () {
@@ -112,9 +118,20 @@ Route::post('api/account/update', [AccountController::class, 'update'])
 Route::middleware(['auth', 'verified', 'profile.completed'])->group(function () {
     Route::get('api/users/search', [UserController::class, 'search'])->name('users.search');
     Route::post('api/users/{user}/follow', [UserController::class, 'toggleFollow'])->name('users.follow');
+    Route::post('api/users/{user}/report', [UserController::class, 'report'])->name('users.report');
     Route::get('api/matchmaking', [MatchmakingController::class, 'index'])->name('matchmaking.index');
+    Route::get('api/matchmaking/discover', [MatchmakingController::class, 'discover'])->name('matchmaking.discover');
     Route::get('api/matchmaking/likes', [MatchmakingController::class, 'likes'])->name('matchmaking.likes');
+    Route::get('api/matchmaking/who-liked-me-count', [MatchmakingController::class, 'whoLikedMeCount'])->name('matchmaking.who-liked-me-count');
+    Route::get('api/matchmaking/who-liked-me', [MatchmakingController::class, 'whoLikedMe'])->name('matchmaking.who-liked-me');
+    Route::get('api/matchmaking/my-recent-likes', [MatchmakingController::class, 'myRecentLikes'])->name('matchmaking.my-recent-likes');
+    Route::get('api/matchmaking/mutual', [MatchmakingController::class, 'mutualMatches'])->name('matchmaking.mutual');
     Route::post('api/matchmaking/action', [MatchmakingController::class, 'action'])->name('matchmaking.action');
+
+    // Gallery (Account + Profile viewing)
+    Route::get('api/gallery', [GalleryController::class, 'index'])->name('gallery.index');
+    Route::post('api/gallery', [GalleryController::class, 'store'])->name('gallery.store');
+    Route::delete('api/gallery/{id}', [GalleryController::class, 'destroy'])->name('gallery.destroy');
 
     Route::get('api/announcements', [AnnouncementController::class, 'index'])->name('announcements.index');
     Route::post('api/announcements', [AnnouncementController::class, 'store'])->middleware('admin')->name('announcements.store');
@@ -128,6 +145,27 @@ Route::middleware(['auth', 'verified', 'profile.completed'])->group(function () 
         'userId' => request()->query('user'),
     ]);
 })->name('chat');
+    Route::get('api/conversations/debug', function () {
+        $me = Auth::user();
+        $allConvs = \App\Models\Conversation::where(function ($q) use ($me) {
+            $q->where('user1_id', $me->id)->orWhere('user2_id', $me->id);
+        })->with(['user1', 'user2'])->withCount('messages')->get();
+        
+        return response()->json([
+            'user_id' => $me->id,
+            'total_conversations' => $allConvs->count(),
+            'conversations' => $allConvs->map(fn($c) => [
+                'id' => $c->id,
+                'user1_id' => $c->user1_id,
+                'user2_id' => $c->user2_id,
+                'messages_count' => $c->messages_count,
+                'updated_at' => $c->updated_at,
+                'created_at' => $c->created_at,
+                'user1_name' => $c->user1?->display_name,
+                'user2_name' => $c->user2?->display_name,
+            ]),
+        ]);
+    });
     Route::get('api/conversations', [ChatController::class, 'index'])->name('chat.conversations');
     Route::get('api/conversations/unread-count', [ChatController::class, 'unreadCount'])->name('chat.unread-count');
     Route::get('api/conversations/{conversation}', [ChatController::class, 'show'])->name('chat.conversations.show');

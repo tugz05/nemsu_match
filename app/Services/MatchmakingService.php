@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
 /**
@@ -14,7 +15,7 @@ use Illuminate\Support\Collection;
  */
 class MatchmakingService
 {
-    // Weights (α, β, γ, δ, ε) – sum = 1.0
+    // Weights (α, β, γ, δ, ε) – sum = 1.0 (Browse behavior)
     private const WEIGHT_ACADEMIC = 0.20;
     private const WEIGHT_INTEREST = 0.25;
     private const WEIGHT_RELATIONSHIP = 0.25;
@@ -237,8 +238,8 @@ class MatchmakingService
      */
     private function ageCompatibility(User $me, User $other): float
     {
-        $myAge = $me->date_of_birth ? (int) $me->date_of_birth->diffInYears(now()) : null;
-        $otherAge = $other->date_of_birth ? (int) $other->date_of_birth->diffInYears(now()) : null;
+        $myAge = $this->ageOf($me);
+        $otherAge = $this->ageOf($other);
 
         $myMin = $me->preferred_age_min;
         $myMax = $me->preferred_age_max;
@@ -371,5 +372,23 @@ class MatchmakingService
         $intersection = count(array_intersect($a, $b));
         $union = count(array_values(array_unique(array_merge($a, $b))));
         return $union > 0 ? $intersection / $union : 0.0;
+    }
+
+    private function ageOf(User $user): ?int
+    {
+        $dob = $user->date_of_birth;
+        if ($dob === null) {
+            return null;
+        }
+
+        if ($dob instanceof \DateTimeInterface) {
+            return Carbon::instance($dob)->diffInYears(now());
+        }
+
+        if (is_string($dob) && trim($dob) !== '') {
+            return Carbon::parse($dob)->diffInYears(now());
+        }
+
+        return null;
     }
 }

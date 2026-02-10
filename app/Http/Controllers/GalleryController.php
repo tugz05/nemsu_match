@@ -11,12 +11,27 @@ use Illuminate\Support\Facades\Storage;
 class GalleryController extends Controller
 {
     /**
-     * List current user's gallery photos.
+     * List gallery photos.
+     *
+     * If ?user_id= is provided, returns that user's public gallery (for profile viewing).
+     * Otherwise, returns the authenticated user's own gallery.
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $user = Auth::user();
-        $photos = $user->galleryPhotos()->get()->map(fn (UserGalleryPhoto $p) => [
+        /** @var \App\Models\User $authUser */
+        $authUser = Auth::user();
+        $userId = $request->query('user_id');
+
+        $query = UserGalleryPhoto::query();
+        if ($userId) {
+            // Viewing someone else's profile – filter by that user_id
+            $query->where('user_id', (int) $userId);
+        } else {
+            // Default: current user's gallery
+            $query->where('user_id', $authUser->id);
+        }
+
+        $photos = $query->orderByDesc('created_at')->get()->map(fn (UserGalleryPhoto $p) => [
             'id' => $p->id,
             'path' => $p->path,
             'url' => '/storage/' . $p->path,
@@ -45,6 +60,7 @@ class GalleryController extends Controller
             return response()->json(['message' => 'No photo(s) provided.'], 422);
         }
 
+        /** @var \App\Models\User $user */
         $user = Auth::user();
         $created = [];
         foreach ($files as $file) {

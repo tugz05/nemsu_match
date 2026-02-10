@@ -5,7 +5,7 @@ import { User, Mail, MapPin, GraduationCap, Calendar, Heart, Book, Target, Troph
 import TagsInput from '@/components/ui/tags-input/TagsInput.vue';
 import { profilePictureSrc } from '@/composables/useProfilePictureSrc';
 import { useCsrfToken } from '@/composables/useCsrfToken';
-import { BottomNav } from '@/components/feed';
+import { BottomNav, FullscreenImageViewer } from '@/components/feed';
 
 type GalleryPhoto = { id: number; path: string; url: string; created_at: string };
 
@@ -93,6 +93,16 @@ const galleryLoading = ref(false);
 const galleryUploading = ref(false);
 const galleryDeletingId = ref<number | null>(null);
 const galleryInputRef = ref<HTMLInputElement | null>(null);
+
+// Fullscreen gallery viewing
+const showFullscreenImage = ref(false);
+const fullscreenIndex = ref(0);
+const fullscreenImages = computed(() => galleryPhotos.value.map((p) => p.path));
+
+function openFullscreenGallery(index: number) {
+    fullscreenIndex.value = Math.max(0, Math.min(index, fullscreenImages.value.length - 1));
+    showFullscreenImage.value = true;
+}
 
 async function fetchGallery() {
     galleryLoading.value = true;
@@ -830,15 +840,22 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick));
 
                     <!-- Photo cells -->
                     <div
-                        v-for="photo in galleryPhotos"
+                        v-for="(photo, idx) in galleryPhotos"
                         :key="photo.id"
                         class="relative group aspect-square rounded-lg overflow-hidden bg-gray-200"
                     >
-                        <img
-                            :src="photo.url"
-                            :alt="'Gallery photo'"
-                            class="w-full h-full object-cover"
-                        />
+                        <button
+                            type="button"
+                            class="w-full h-full"
+                            @click="openFullscreenGallery(idx)"
+                            aria-label="View photo"
+                        >
+                            <img
+                                :src="photo.url"
+                                :alt="'Gallery photo'"
+                                class="w-full h-full object-cover"
+                            />
+                        </button>
                         <button
                             type="button"
                             :disabled="galleryDeletingId === photo.id"
@@ -872,6 +889,12 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick));
                 </div>
             </div>
         </div>
+
+        <FullscreenImageViewer
+            v-model="showFullscreenImage"
+            v-model:index="fullscreenIndex"
+            :images="fullscreenImages"
+        />
 
         <BottomNav active-tab="account" />
     </div>

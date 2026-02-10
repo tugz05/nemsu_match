@@ -51,7 +51,7 @@ const form = useForm({
     interests: [] as string[],
     relationship_status: '',
     looking_for: '',
-    preferred_gender: '',
+    preferred_gender: null as string | null,
     preferred_age_min: null as number | null,
     preferred_age_max: null as number | null,
     preferred_campuses: [] as string[],
@@ -87,7 +87,7 @@ const lookingForCards = [
 
 /** Gender(s) to see in Discover – "No preference" means no filter. Card options (single-select). */
 const preferredGenderOptions = [
-    { value: '', label: 'No preference', description: 'Show me everyone in Discover.', icon: Users },
+    { value: null, label: 'No preference', description: 'Show me everyone in Discover.', icon: Users },
     { value: 'Male', label: 'Male', description: 'Only show male users in Discover.', icon: User },
     { value: 'Female', label: 'Female', description: 'Only show female users in Discover.', icon: User },
     { value: 'Lesbian', label: 'Lesbian', description: 'Only show lesbian users in Discover.', icon: User },

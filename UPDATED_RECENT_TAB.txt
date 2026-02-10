@@ -1,0 +1,122 @@
+## UPDATED RECENT TAB SECTION FOR LIKEYOU.VUE
+## Replace lines ~692-737 with this optimized version
+
+            <!-- Recent: users YOU liked -->
+            <template v-if="activeTab === 'recent'">
+                <div class="flex-1 min-h-0 overflow-y-auto bg-gradient-to-br from-blue-50 via-white to-cyan-50 pb-6">
+                    <!-- Loading State -->
+                    <div v-if="whoLikedMeLoading && whoLikedMeList.length === 0" class="flex justify-center py-20">
+                        <div class="flex flex-col items-center gap-3">
+                            <div class="w-12 h-12 border-4 border-pink-500 border-t-transparent rounded-full animate-spin" />
+                            <p class="text-sm text-gray-600 font-medium">Loading your recent likes...</p>
+                        </div>
+                    </div>
+
+                    <!-- Empty State -->
+                    <div v-else-if="whoLikedMeList.length === 0" class="flex flex-col items-center justify-center py-20 px-6">
+                        <div class="relative mb-6">
+                            <div class="w-24 h-24 bg-gradient-to-br from-pink-100 to-rose-100 rounded-full flex items-center justify-center">
+                                <Heart class="w-12 h-12 text-pink-500 fill-pink-200 animate-pulse" />
+                            </div>
+                            <div class="absolute -top-1 -right-1 w-8 h-8 bg-gradient-to-br from-amber-400 to-yellow-500 rounded-full flex items-center justify-center shadow-lg animate-bounce">
+                                <span class="text-white text-xl">✨</span>
+                            </div>
+                        </div>
+                        <h3 class="text-xl font-bold text-gray-900 mb-2">No Recent Likes</h3>
+                        <p class="text-center text-gray-600 mb-6 max-w-sm">
+                            Users you like with heart, smile, or study buddy will appear here.
+                        </p>
+                        <button 
+                            type="button" 
+                            @click="setTab('discover')" 
+                            class="px-8 py-3 rounded-full bg-gradient-to-r from-pink-500 via-red-500 to-rose-600 text-white font-semibold shadow-xl hover:shadow-2xl hover:scale-105 transition-all duration-300"
+                        >
+                            Start Discovering
+                        </button>
+                    </div>
+
+                    <!-- Grid of Cards -->
+                    <div v-else class="px-4 py-6">
+                        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                            <div
+                                v-for="(u, idx) in whoLikedMeList"
+                                :key="u.id"
+                                class="matchback-card group relative bg-white rounded-2xl overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-300 hover:-translate-y-2"
+                                :style="{ animationDelay: `${idx * 50}ms` }"
+                            >
+                                <!-- Card Image -->
+                                <div class="relative aspect-[3/4] overflow-hidden cursor-pointer" @click="openProfileForMatch(u.id)">
+                                    <img 
+                                        v-if="u.profile_picture" 
+                                        :src="profilePictureSrc(u.profile_picture)" 
+                                        :alt="u.display_name" 
+                                        class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                                    />
+                                    <div 
+                                        v-else 
+                                        class="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-400 to-cyan-500 text-white font-bold text-4xl"
+                                    >
+                                        {{ (u.display_name || u.fullname || '?').charAt(0).toUpperCase() }}
+                                    </div>
+
+                                    <!-- Gradient Overlay -->
+                                    <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+
+                                    <!-- Intent Badge - YOUR intent -->
+                                    <div class="absolute top-3 right-3 px-2.5 py-1.5 rounded-full bg-white/90 backdrop-blur-sm flex items-center gap-1.5 shadow-lg">
+                                        <component :is="intentIcon(u.my_intent)" class="w-4 h-4" :class="intentColor(u.my_intent)" />
+                                    </div>
+
+                                    <!-- Name & Campus -->
+                                    <div class="absolute bottom-0 left-0 right-0 p-3">
+                                        <h4 class="text-white font-bold text-lg truncate drop-shadow-lg">
+                                            {{ u.display_name || u.fullname }}
+                                        </h4>
+                                        <p v-if="u.campus" class="text-white/90 text-xs truncate drop-shadow">{{ u.campus }}</p>
+                                    </div>
+                                </div>
+
+                                <!-- Action Buttons -->
+                                <div class="p-3 flex gap-2">
+                                    <button 
+                                        type="button" 
+                                        @click="openProfileForMatch(u.id)" 
+                                        class="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 transition-colors flex items-center justify-center gap-1"
+                                    >
+                                        View
+                                    </button>
+                                    <button 
+                                        type="button" 
+                                        @click="openChatForMatch(u.id)" 
+                                        class="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-600 text-white text-sm font-semibold hover:shadow-lg transition-all flex items-center justify-center gap-1"
+                                    >
+                                        <MessageCircle class="w-4 h-4" />
+                                        Message
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Load More Button -->
+                        <div v-if="whoLikedMePage < whoLikedMeLastPage" class="mt-8 flex justify-center">
+                            <button 
+                                type="button" 
+                                :disabled="whoLikedMeLoadingMore"
+                                class="px-8 py-3 rounded-full bg-white border-2 border-gray-200 text-gray-700 text-sm font-semibold hover:border-pink-300 hover:text-pink-600 transition-all disabled:opacity-50 shadow-md hover:shadow-lg" 
+                                @click="fetchWhoLikedMe(whoLikedMePage + 1)"
+                            >
+                                {{ whoLikedMeLoadingMore ? 'Loading...' : 'Load More' }}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </template>
+
+## KEY CHANGES:
+## 1. Endpoint changed to /api/matchmaking/my-recent-likes (shows users YOU liked)
+## 2. Empty state text updated: "No Recent Likes" + "Users you like with heart, smile, or study buddy will appear here"
+## 3. Intent badge shows MY_INTENT (your intent when you liked them)
+## 4. Action buttons changed from "Pass/Match back" to "View/Message"
+## 5. Modern grid layout (2-4 columns responsive)
+## 6. Cards with profile images, gradient overlays, hover effects
+## 7. Staggered entrance animations already in CSS

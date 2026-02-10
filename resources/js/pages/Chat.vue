@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
-import { ChevronLeft, Send, MessageCircle, UserPlus, Check, X, MoreVertical, Ban, Flag, Search, PencilLine, Camera, SlidersHorizontal, Paperclip, Smile, Mic } from 'lucide-vue-next';
+import { ChevronLeft, Send, MessageCircle, UserPlus, Check, X, MoreVertical, Ban, Flag, Search, PencilLine, Camera, SlidersHorizontal, Paperclip, Smile } from 'lucide-vue-next';
 import { useCsrfToken } from '@/composables/useCsrfToken';
 import { profilePictureSrc } from '@/composables/useProfilePictureSrc';
 import { BottomNav } from '@/components/feed';
+import { BlockUserConfirmDialog, ReportConversationDialog, SuccessToast, EmojiPicker } from '@/components/chat';
 import { getEcho } from '@/echo';
 
 interface OtherUser {
@@ -21,6 +22,8 @@ interface ConversationItem {
     last_message: { id: number; sender_id: number; body: string; read_at: string | null; created_at: string } | null;
     unread_count: number;
     updated_at: string;
+    is_pending_request?: boolean;
+    pending_request_from_me?: boolean;
 }
 
 interface MessageItem {
@@ -71,6 +74,17 @@ const newMessageUserLoading = ref(false);
 const selectedUserForNewMessage = ref<OtherUser | null>(null);
 const newMessageComposeBody = ref('');
 const sendingNewMessage = ref(false);
+/** Block and Report dialogs */
+const showBlockDialog = ref(false);
+const showReportDialog = ref(false);
+const blockingUser = ref(false);
+const reportingConversation = ref(false);
+/** Success notification */
+const showSuccessToast = ref(false);
+const successMessage = ref('');
+/** Emoji pickers */
+const showComposeEmojiPicker = ref(false);
+const showMessageEmojiPicker = ref(false);
 let typingTimeout: ReturnType<typeof setTimeout> | null = null;
 let echoLeave: (() => void) | null = null;
 let newMessageSearchDebounce: ReturnType<typeof setTimeout> | null = null;
@@ -154,9 +168,12 @@ async function fetchConversations() {
         if (res.ok) {
             const data = await res.json();
             conversations.value = data.data ?? [];
+            console.log('Fetched conversations:', conversations.value.length, conversations.value);
+        } else {
+            console.error('Failed to fetch conversations:', res.status, await res.text());
         }
     } catch (e) {
-        console.error(e);
+        console.error('Error fetching conversations:', e);
     } finally {
         loadingConversations.value = false;
     }
@@ -249,26 +266,85 @@ async function sendNewMessageToUser() {
             body: JSON.stringify({ user_id: user.id, body }),
         });
         const data = await res.json().catch(() => ({}));
+        console.log('Send message response:', res.status, data);
+        
         if (res.ok) {
-            if (data.message?.conversation_id != null) {
+            // Both matched messages and message requests now create conversations
+            const convId = data.conversation_id || data.message?.conversation_id;
+            console.log('Conversation ID:', convId, 'Has conversation data:', !!data.conversation);
+            
+            if (convId) {
                 closeNewMessage();
+                
+                // If conversation data is provided in response, add it immediately
+                if (data.conversation) {
+                    const newConv = {
+                        id: data.conversation.id,
+                        other_user: data.conversation.other_user,
+                        last_message: data.message ? {
+                            id: data.message.id,
+                            sender_id: data.message.sender_id,
+                            body: data.message.body,
+                            read_at: data.message.read_at,
+                            created_at: data.message.created_at,
+                        } : null,
+                        unread_count: 0,
+                        updated_at: data.conversation.updated_at,
+                        is_pending_request: data.message_request ? true : false,
+                        pending_request_from_me: data.message_request ? true : false,
+                    };
+                    
+                    // Add to conversations list if not already there
+                    const existingIndex = conversations.value.findIndex((c) => c.id === convId);
+                    if (existingIndex >= 0) {
+                        conversations.value[existingIndex] = newConv;
+                    } else {
+                        conversations.value = [newConv, ...conversations.value];
+                    }
+                }
+                
                 await fetchConversations();
-                const conv = conversations.value.find((c) => c.id === data.message.conversation_id);
+                const conv = conversations.value.find((c) => c.id === convId);
                 if (conv) {
                     openConversation(conv);
                 } else {
-                    currentConversation.value = { id: data.message.conversation_id, other_user: user };
-                    selectedConversationId.value = data.message.conversation_id;
-                    messages.value = [data.message];
+                    // Create temporary conversation object
+                    currentConversation.value = { id: convId, other_user: user };
+                    selectedConversationId.value = convId;
+                    messages.value = data.message ? [data.message] : [];
                     messagePage.value = 1;
                     lastMessagePage.value = 1;
-                    markRead(data.message.conversation_id);
-                    subscribeToConversation(data.message.conversation_id);
+                    markRead(convId);
+                    subscribeToConversation(convId);
                 }
-            } else if (data.message_request) {
-                closeNewMessage();
-                await fetchRequests();
-                alert('Message request sent. They will see it in their requests.');
+            }
+        } else if (res.status === 200 && data.conversation_id) {
+            // Already have pending request, but got conversation data back
+            closeNewMessage();
+            
+            if (data.conversation) {
+                const existingConv = {
+                    id: data.conversation.id,
+                    other_user: data.conversation.other_user,
+                    last_message: null,
+                    unread_count: 0,
+                    updated_at: data.conversation.updated_at,
+                    is_pending_request: true,
+                    pending_request_from_me: true,
+                };
+                
+                const existingIndex = conversations.value.findIndex((c) => c.id === data.conversation_id);
+                if (existingIndex >= 0) {
+                    conversations.value[existingIndex] = existingConv;
+                } else {
+                    conversations.value = [existingConv, ...conversations.value];
+                }
+            }
+            
+            await fetchConversations();
+            const conv = conversations.value.find((c) => c.id === data.conversation_id);
+            if (conv) {
+                openConversation(conv);
             }
         } else {
             alert(data.message || 'Could not send message.');
@@ -332,7 +408,21 @@ function subscribeToConversation(conversationId: number) {
     const channel = Echo.private(`conversation.${conversationId}`);
     channel.listen('.MessageSent', (e: MessageItem) => {
         if (selectedConversationId.value === conversationId) {
-            messages.value = [...messages.value, e];
+            // Check if this is replacing a temporary message (negative ID) or if it already exists
+            const tempMessageIndex = messages.value.findIndex((m) => 
+                m.id < 0 && m.body === e.body && m.sender_id === e.sender_id
+            );
+            const messageExists = messages.value.some((m) => m.id === e.id);
+            
+            if (tempMessageIndex !== -1) {
+                // Replace temporary message with real one (no blink)
+                messages.value = messages.value.map((m, i) => 
+                    i === tempMessageIndex ? e : m
+                );
+            } else if (!messageExists) {
+                // Add new message (from other users)
+                messages.value = [...messages.value, e];
+            }
         }
         fetchConversations();
     });
@@ -395,7 +485,21 @@ async function sendMessage() {
     const body = newMessageBody.value.trim();
     if (!body || !currentConversation.value || sending.value) return;
     sending.value = true;
+    const tempBody = body; // Store for optimistic update
     newMessageBody.value = '';
+    
+    // Optimistic update - add temporary message with negative ID
+    const tempId = -Date.now(); // Negative timestamp for temporary ID
+    const tempMessage: MessageItem = {
+        id: tempId,
+        sender_id: currentUserId.value,
+        sender: null,
+        body: tempBody,
+        read_at: null,
+        created_at: new Date().toISOString(),
+    };
+    messages.value = [...messages.value, tempMessage];
+    
     try {
         const res = await fetch(`/api/conversations/${currentConversation.value.id}/messages`, {
             method: 'POST',
@@ -405,15 +509,23 @@ async function sendMessage() {
                 'X-CSRF-TOKEN': getCsrfToken(),
                 Accept: 'application/json',
             },
-            body: JSON.stringify({ body }),
+            body: JSON.stringify({ body: tempBody }),
         });
         if (res.ok) {
             const data = await res.json();
-            messages.value = [...messages.value, data.message];
+            // Replace temporary message with real one immediately to prevent blinking
+            messages.value = messages.value.map(m => 
+                m.id === tempId ? data.message : m
+            );
             fetchConversations();
+        } else {
+            // If failed, remove the temporary message
+            messages.value = messages.value.filter(m => m.id !== tempId);
         }
     } catch (e) {
         console.error(e);
+        // Remove temporary message on error
+        messages.value = messages.value.filter(m => m.id !== tempId);
     } finally {
         sending.value = false;
     }
@@ -458,26 +570,59 @@ async function declineRequest(req: MessageRequestItem) {
     }
 }
 
-async function blockUser() {
+function blockUser() {
     if (!currentConversation.value) return;
+    showConvMenu.value = false;
+    showBlockDialog.value = true;
+}
+
+async function confirmBlockUser() {
+    if (!currentConversation.value) return;
+    
+    const userName = displayName(currentConversation.value.other_user);
+    blockingUser.value = true;
+    
     try {
-        await fetch(`/api/users/${currentConversation.value.other_user.id}/block`, {
+        const res = await fetch(`/api/users/${currentConversation.value.other_user.id}/block`, {
             method: 'POST',
             credentials: 'same-origin',
             headers: { 'X-CSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
         });
-        showConvMenu.value = false;
+        
+        if (!res.ok) {
+            throw new Error('Failed to block user');
+        }
+        
+        showBlockDialog.value = false;
         closeConversation();
-        fetchConversations();
+        await fetchConversations();
+        
+        // Show success message
+        successMessage.value = `${userName} has been blocked successfully.`;
+        showSuccessToast.value = true;
     } catch (e) {
         console.error(e);
+        successMessage.value = 'Failed to block user. Please try again.';
+        showSuccessToast.value = true;
+    } finally {
+        blockingUser.value = false;
     }
 }
 
-async function reportConversation() {
+function reportConversation() {
     if (!currentConversation.value) return;
+    showConvMenu.value = false;
+    showReportDialog.value = true;
+}
+
+async function submitReport(payload: { reason: string }) {
+    if (!currentConversation.value) return;
+    
+    const userName = displayName(currentConversation.value.other_user);
+    reportingConversation.value = true;
+    
     try {
-        await fetch(`/api/conversations/${currentConversation.value.id}/report`, {
+        const res = await fetch(`/api/conversations/${currentConversation.value.id}/report`, {
             method: 'POST',
             credentials: 'same-origin',
             headers: {
@@ -485,11 +630,26 @@ async function reportConversation() {
                 'X-CSRF-TOKEN': getCsrfToken(),
                 Accept: 'application/json',
             },
-            body: JSON.stringify({ reason: 'Inappropriate conversation' }),
+            body: JSON.stringify({ 
+                reason: payload.reason || 'Inappropriate conversation' 
+            }),
         });
-        showConvMenu.value = false;
+        
+        if (!res.ok) {
+            throw new Error('Failed to report conversation');
+        }
+        
+        showReportDialog.value = false;
+        
+        // Show success message
+        successMessage.value = `Thank you for your report. Our team will review this conversation with ${userName}.`;
+        showSuccessToast.value = true;
     } catch (e) {
         console.error(e);
+        successMessage.value = 'Failed to submit report. Please try again.';
+        showSuccessToast.value = true;
+    } finally {
+        reportingConversation.value = false;
     }
 }
 
@@ -509,7 +669,39 @@ function goBack() {
         return;
     }
     if (currentConversation.value) closeConversation();
-    else router.visit('/home');
+    else router.visit('/browse');
+}
+
+function toggleComposeEmojiPicker() {
+    showComposeEmojiPicker.value = !showComposeEmojiPicker.value;
+    if (showComposeEmojiPicker.value) {
+        showMessageEmojiPicker.value = false;
+    }
+}
+
+function toggleMessageEmojiPicker() {
+    showMessageEmojiPicker.value = !showMessageEmojiPicker.value;
+    if (showMessageEmojiPicker.value) {
+        showComposeEmojiPicker.value = false;
+    }
+}
+
+function insertEmojiIntoCompose(emoji: string) {
+    newMessageComposeBody.value += emoji;
+    showComposeEmojiPicker.value = false;
+}
+
+function insertEmojiIntoMessage(emoji: string) {
+    newMessageBody.value += emoji;
+    showMessageEmojiPicker.value = false;
+}
+
+function handleClickOutsideEmoji(event: MouseEvent) {
+    const target = event.target as HTMLElement;
+    if (!target.closest('.emoji-picker-container') && !target.closest('.emoji-button')) {
+        showComposeEmojiPicker.value = false;
+        showMessageEmojiPicker.value = false;
+    }
 }
 
 watch(newMessageUserSearch, () => {
@@ -543,6 +735,24 @@ watch(
                         unread_count: 0,
                         updated_at: new Date().toISOString(),
                     });
+                } else if (res.status === 403) {
+                    // Not matched - need to send a message request instead
+                    // Get user details from error response and open new message modal
+                    try {
+                        const errorData = await res.json();
+                        if (errorData.user) {
+                            showNewMessage.value = true;
+                            selectedUserForNewMessage.value = {
+                                id: errorData.user.id,
+                                display_name: errorData.user.display_name,
+                                fullname: errorData.user.fullname,
+                                profile_picture: errorData.user.profile_picture,
+                                is_online: false,
+                            };
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse error response:', e);
+                    }
                 }
             } catch (e) {
                 console.error(e);
@@ -577,15 +787,27 @@ watch(
     { immediate: true },
 );
 
+function handleClickOutside(event: MouseEvent) {
+    const target = event.target as HTMLElement;
+    // Close menu if clicking outside the menu area
+    if (showConvMenu.value && !target.closest('.conv-menu-container')) {
+        showConvMenu.value = false;
+    }
+}
+
 onMounted(() => {
     fetchConversations();
     fetchRequests();
+    document.addEventListener('click', handleClickOutside);
+    document.addEventListener('click', handleClickOutsideEmoji);
 });
 
 onUnmounted(() => {
     if (typingTimeout) clearTimeout(typingTimeout);
     if (echoLeave) echoLeave();
     if (newMessageSearchDebounce) clearTimeout(newMessageSearchDebounce);
+    document.removeEventListener('click', handleClickOutside);
+    document.removeEventListener('click', handleClickOutsideEmoji);
 });
 </script>
 
@@ -593,21 +815,14 @@ onUnmounted(() => {
     <div class="min-h-screen bg-white pb-20 flex flex-col">
         <Head title="Chat - NEMSU Match" />
 
-        <!-- Header: only show when on list or new-message (not inside a conversation) -->
-        <div v-if="!currentConversation" class="sticky top-0 z-40 bg-white border-b border-gray-200">
+        <!-- Header: only show when on list or new-message search (not inside a conversation or composing to selected user) -->
+        <div v-if="!currentConversation && !selectedUserForNewMessage" class="sticky top-0 z-40 bg-white border-b border-gray-200">
             <div class="max-w-2xl mx-auto px-4 py-3 flex items-center gap-2">
                 <button type="button" @click="goBack" class="p-2 -ml-2 rounded-full hover:bg-gray-100 shrink-0" aria-label="Back">
                     <ChevronLeft class="w-6 h-6 text-gray-700" />
                 </button>
                 <h1 class="text-lg font-bold text-gray-900 flex-1 text-center">Messages</h1>
-                <div v-if="!showNewMessage" class="flex items-center gap-1 shrink-0 w-20 justify-end">
-                    <button type="button" class="p-2 rounded-full hover:bg-gray-100" aria-label="Camera">
-                        <Camera class="w-6 h-6 text-gray-700" />
-                    </button>
-                    <button type="button" @click="openNewMessage" class="p-2 rounded-full hover:bg-gray-100" aria-label="New message">
-                        <PencilLine class="w-6 h-6 text-gray-700" />
-                    </button>
-                </div>
+                <div class="w-20"></div>
             </div>
             <!-- Search bar + filter (list view only) -->
             <div v-if="!showNewMessage" class="max-w-2xl mx-auto px-4 pb-3 flex items-center gap-2">
@@ -650,31 +865,14 @@ onUnmounted(() => {
 
         <!-- New message: search user + compose -->
         <div v-if="showNewMessage" class="flex-1 flex flex-col overflow-hidden">
-            <div class="px-4 py-3 border-b border-gray-200">
+            <div v-if="!selectedUserForNewMessage" class="px-4 py-3 border-b border-gray-200">
                 <p class="text-sm font-semibold text-gray-700 mb-2">New message</p>
                 <input
-                    v-if="!selectedUserForNewMessage"
                     v-model="newMessageUserSearch"
                     type="text"
                     placeholder="Search for someone to message..."
                     class="w-full px-4 py-2.5 bg-gray-100 rounded-full text-sm outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                <div v-else class="flex items-center gap-3">
-                    <button type="button" @click="selectedUserForNewMessage = null" class="p-1 rounded-full hover:bg-gray-100">
-                        <ChevronLeft class="w-5 h-5 text-gray-600" />
-                    </button>
-                    <div class="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-blue-100 to-cyan-100 flex-shrink-0">
-                        <img
-                            v-if="selectedUserForNewMessage.profile_picture"
-                            :src="profilePictureSrc(selectedUserForNewMessage.profile_picture)"
-                            class="w-full h-full object-cover"
-                        />
-                        <div v-else class="w-full h-full flex items-center justify-center text-blue-600 font-bold">
-                            {{ displayName(selectedUserForNewMessage).charAt(0).toUpperCase() }}
-                        </div>
-                    </div>
-                    <p class="font-semibold text-gray-900 truncate flex-1">{{ displayName(selectedUserForNewMessage) }}</p>
-                </div>
             </div>
             <div v-if="!selectedUserForNewMessage" class="flex-1 overflow-y-auto">
                 <div v-if="newMessageUserLoading" class="flex justify-center py-8">
@@ -699,21 +897,81 @@ onUnmounted(() => {
                     </li>
                 </ul>
             </div>
-            <div v-else class="flex-1 flex flex-col p-4">
-                <textarea
-                    v-model="newMessageComposeBody"
-                    placeholder="Write a message..."
-                    rows="4"
-                    class="w-full px-4 py-3 bg-gray-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                />
-                <button
-                    type="button"
-                    @click="sendNewMessageToUser"
-                    :disabled="!newMessageComposeBody.trim() || sendingNewMessage"
-                    class="mt-3 px-4 py-2.5 bg-blue-600 text-white rounded-full font-semibold text-sm disabled:opacity-50"
-                >
-                    {{ sendingNewMessage ? 'Sending...' : 'Send' }}
-                </button>
+            <div v-else class="flex-1 flex flex-col overflow-hidden">
+                <!-- Header matching regular conversation -->
+                <header class="bg-white border-b border-gray-200 shrink-0">
+                    <div class="px-4 py-3 flex items-center gap-3">
+                        <button type="button" @click="router.visit('/chat')" class="p-2 -ml-2 rounded-full hover:bg-gray-100 shrink-0" aria-label="Back">
+                            <ChevronLeft class="w-5 h-5 text-gray-700" />
+                        </button>
+                        <div class="flex-1 min-w-0 flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-blue-100 to-cyan-100 flex-shrink-0">
+                                <img
+                                    v-if="selectedUserForNewMessage.profile_picture"
+                                    :src="profilePictureSrc(selectedUserForNewMessage.profile_picture)"
+                                    class="w-full h-full object-cover"
+                                    :alt="displayName(selectedUserForNewMessage)"
+                                />
+                                <div v-else class="w-full h-full flex items-center justify-center text-blue-600 font-bold text-sm">
+                                    {{ displayName(selectedUserForNewMessage).charAt(0).toUpperCase() }}
+                                </div>
+                            </div>
+                            <div class="min-w-0 flex-1">
+                                <p class="font-semibold text-gray-900 truncate">{{ displayName(selectedUserForNewMessage) }}</p>
+                                <p class="text-xs text-gray-500">New message</p>
+                            </div>
+                        </div>
+                    </div>
+                </header>
+                
+                <!-- Empty message area with hint -->
+                <div class="flex-1 overflow-y-auto min-h-0 px-4 py-4 pb-[88px]">
+                    <div class="flex flex-col items-center justify-center py-16 text-center">
+                        <div class="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center mb-4">
+                            <MessageCircle class="w-8 h-8 text-blue-600" />
+                        </div>
+                        <p class="text-sm text-gray-600 mb-1">Send your first message to</p>
+                        <p class="font-semibold text-gray-900">{{ displayName(selectedUserForNewMessage) }}</p>
+                    </div>
+                </div>
+                
+                <!-- Fixed input bar at bottom (matching regular conversation) -->
+                <div class="fixed bottom-20 left-0 right-0 z-30 bg-white border-t border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]">
+                    <div class="max-w-2xl mx-auto px-4 py-3 flex items-center gap-2">
+                        <div class="relative emoji-picker-container">
+                            <button 
+                                type="button" 
+                                @click.stop="toggleComposeEmojiPicker"
+                                class="p-2.5 rounded-full hover:bg-gray-100 shrink-0 transition-colors emoji-button"
+                                :class="showComposeEmojiPicker ? 'bg-blue-100 text-blue-600' : 'text-gray-500'"
+                                aria-label="Emoji"
+                            >
+                                <Smile class="w-5 h-5" />
+                            </button>
+                            <EmojiPicker
+                                :show="showComposeEmojiPicker"
+                                @select="insertEmojiIntoCompose"
+                                @close="showComposeEmojiPicker = false"
+                            />
+                        </div>
+                        <input
+                            v-model="newMessageComposeBody"
+                            type="text"
+                            placeholder="Enter Text"
+                            class="flex-1 min-w-0 px-4 py-2.5 bg-gray-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-colors"
+                            @keydown.enter.prevent="sendNewMessageToUser"
+                        />
+                        <button
+                            type="button"
+                            @click="sendNewMessageToUser"
+                            :disabled="sendingNewMessage || !newMessageComposeBody.trim()"
+                            class="p-2.5 bg-blue-600 text-white rounded-full shrink-0 hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                            aria-label="Send"
+                        >
+                            <Send class="w-5 h-5" />
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -756,7 +1014,15 @@ onUnmounted(() => {
                             />
                         </div>
                         <div class="flex-1 min-w-0">
-                            <p class="font-semibold text-gray-900 truncate">{{ displayName(c.other_user) }}</p>
+                            <div class="flex items-center gap-2">
+                                <p class="font-semibold text-gray-900 truncate">{{ displayName(c.other_user) }}</p>
+                                <span 
+                                    v-if="c.is_pending_request && c.pending_request_from_me"
+                                    class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-medium whitespace-nowrap"
+                                >
+                                    Pending
+                                </span>
+                            </div>
                             <p class="text-sm truncate mt-0.5" :class="c.unread_count > 0 ? 'text-gray-700 font-medium' : 'text-gray-500'">
                                 {{ c.last_message ? c.last_message.body : 'No messages yet' }}
                             </p>
@@ -873,7 +1139,7 @@ onUnmounted(() => {
                             <button type="button" @click="toggleMessageSearchInput" class="p-2 rounded-full hover:bg-gray-100" :class="(showMessageSearchInput || messageSearchQuery) ? 'text-blue-600' : 'text-gray-600'" aria-label="Search">
                                 <Search class="w-5 h-5" />
                             </button>
-                            <div class="relative">
+                            <div class="relative conv-menu-container">
                                 <button type="button" @click="showConvMenu = !showConvMenu" class="p-2 rounded-full hover:bg-gray-100 text-gray-600" aria-label="Options">
                                     <MoreVertical class="w-5 h-5" />
                                 </button>
@@ -936,9 +1202,22 @@ onUnmounted(() => {
             <!-- Fixed input bar at bottom (above BottomNav) -->
             <div class="fixed bottom-20 left-0 right-0 z-30 bg-white border-t border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]">
                 <div class="max-w-2xl mx-auto px-4 py-3 flex items-center gap-2">
-                    <button type="button" class="p-2.5 rounded-full hover:bg-gray-100 shrink-0 text-gray-500 transition-colors" aria-label="Emoji">
-                        <Smile class="w-5 h-5" />
-                    </button>
+                    <div class="relative emoji-picker-container">
+                        <button 
+                            type="button" 
+                            @click.stop="toggleMessageEmojiPicker"
+                            class="p-2.5 rounded-full hover:bg-gray-100 shrink-0 transition-colors emoji-button"
+                            :class="showMessageEmojiPicker ? 'bg-blue-100 text-blue-600' : 'text-gray-500'"
+                            aria-label="Emoji"
+                        >
+                            <Smile class="w-5 h-5" />
+                        </button>
+                        <EmojiPicker
+                            :show="showMessageEmojiPicker"
+                            @select="insertEmojiIntoMessage"
+                            @close="showMessageEmojiPicker = false"
+                        />
+                    </div>
                     <input
                         v-model="newMessageBody"
                         type="text"
@@ -947,26 +1226,45 @@ onUnmounted(() => {
                         @keydown.enter.prevent="sendMessage"
                         @input="onMessageInput"
                     />
-                    <template v-if="newMessageBody.trim()">
-                        <button
-                            type="button"
-                            @click="sendMessage"
-                            :disabled="sending"
-                            class="p-2.5 bg-blue-600 text-white rounded-full shrink-0 hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                            aria-label="Send"
-                        >
-                            <Send class="w-5 h-5" />
-                        </button>
-                    </template>
-                    <template v-else>
-                        <button type="button" class="p-2.5 rounded-full hover:bg-gray-100 shrink-0 text-gray-500 transition-colors" aria-label="Voice">
-                            <Mic class="w-5 h-5" />
-                        </button>
-                    </template>
+                    <button
+                        type="button"
+                        @click="sendMessage"
+                        :disabled="sending || !newMessageBody.trim()"
+                        class="p-2.5 bg-blue-600 text-white rounded-full shrink-0 hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                        aria-label="Send"
+                    >
+                        <Send class="w-5 h-5" />
+                    </button>
                 </div>
             </div>
         </template>
 
         <BottomNav active-tab="chat" />
+
+        <!-- Block User Confirmation Dialog -->
+        <BlockUserConfirmDialog
+            :open="showBlockDialog"
+            :user="currentConversation?.other_user ?? null"
+            :blocking="blockingUser"
+            @close="showBlockDialog = false"
+            @confirm="confirmBlockUser"
+        />
+
+        <!-- Report Conversation Dialog -->
+        <ReportConversationDialog
+            :open="showReportDialog"
+            :user="currentConversation?.other_user ?? null"
+            :submitting="reportingConversation"
+            @close="showReportDialog = false"
+            @submit="submitReport"
+        />
+
+        <!-- Success Toast Notification -->
+        <SuccessToast
+            :show="showSuccessToast"
+            :message="successMessage"
+            :duration="3000"
+            @close="showSuccessToast = false"
+        />
     </div>
 </template>

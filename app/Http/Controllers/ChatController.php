@@ -12,6 +12,7 @@ use App\Models\Message;
 use App\Models\MessageRequest;
 use App\Models\Notification;
 use App\Models\User;
+use App\Models\UserMatch;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -27,7 +28,7 @@ class ChatController extends Controller
         return array_values(array_unique(array_merge($blocked, $blockedBy)));
     }
 
-    /** Whether current user can message/see the other (follow relation and not blocked) */
+    /** Whether current user can message/see the other (matched and not blocked) */
     private function canMessage(User $other): bool
     {
         $me = Auth::user();
@@ -39,11 +40,12 @@ class ChatController extends Controller
             return false;
         }
 
-        return $me->isFollowing($other) || $other->isFollowing($me);
+        // Check if users are matched (mutually liked each other)
+        return UserMatch::areMatched($me->id, $other->id);
     }
 
     /**
-     * List conversations: only with users the current user follows or who follow them (and not blocked).
+     * List conversations: all conversations with messages (matched users or message requests).
      */
     public function index(Request $request)
     {
@@ -56,28 +58,38 @@ class ChatController extends Controller
             })
             ->whereNotIn('user1_id', $blocked)
             ->whereNotIn('user2_id', $blocked)
-            ->with(['user1:id,display_name,fullname,profile_picture,last_seen_at', 'user2:id,display_name,fullname,profile_picture,last_seen_at'])
+            ->has('messages') // Only show conversations that have at least one message
+            ->with(['user1', 'user2', 'messages' => function ($q) {
+                $q->latest()->limit(1);
+            }])
             ->orderByDesc('updated_at')
             ->get();
 
-        $followingIds = $me->following()->pluck('following_id')->flip();
-        $followerIds = $me->followers()->pluck('follower_id')->flip();
-
         $list = [];
         foreach ($conversations as $c) {
-            $other = $c->otherUser($me->id);
-            if (in_array((int) $other->id, $blocked, true)) {
+            // Determine the other user
+            $otherId = ((int) $c->user1_id === $me->id) ? $c->user2_id : $c->user1_id;
+            $other = ((int) $c->user1_id === $me->id) ? $c->user2 : $c->user1;
+            
+            if (!$other || in_array((int) $otherId, $blocked, true)) {
                 continue;
             }
-            if (! $followingIds->has($other->id) && ! $followerIds->has($other->id)) {
-                continue;
-            }
+            // Show all conversations (matched or message requests)
+            // If conversation exists, both parties should see it
 
-            $lastMessage = $c->messages()->first();
+            $lastMessage = $c->messages->first(); // Already loaded via with()
             $unreadCount = $c->messages()
                 ->where('sender_id', '!=', $me->id)
                 ->whereNull('read_at')
                 ->count();
+
+            // Check if this is a pending message request
+            $pendingRequest = MessageRequest::where(function ($q) use ($me, $other): void {
+                $q->where('from_user_id', $me->id)->where('to_user_id', $other->id)
+                    ->orWhere('from_user_id', $other->id)->where('to_user_id', $me->id);
+            })
+                ->where('status', MessageRequest::STATUS_PENDING)
+                ->first();
 
             $list[] = [
                 'id' => $c->id,
@@ -97,6 +109,8 @@ class ChatController extends Controller
                 ] : null,
                 'unread_count' => $unreadCount,
                 'updated_at' => $c->updated_at->toIso8601String(),
+                'is_pending_request' => $pendingRequest !== null,
+                'pending_request_from_me' => $pendingRequest && $pendingRequest->from_user_id === $me->id,
             ];
         }
 
@@ -163,7 +177,15 @@ class ChatController extends Controller
         $other = User::findOrFail($request->user_id);
 
         if (! $this->canMessage($other)) {
-            return response()->json(['message' => 'You can only message users you follow or who follow you.'], 403);
+            return response()->json([
+                'message' => 'You can only message users you have matched with. Send a message request instead.',
+                'user' => [
+                    'id' => $other->id,
+                    'display_name' => $other->display_name,
+                    'fullname' => $other->fullname,
+                    'profile_picture' => $other->profile_picture,
+                ],
+            ], 403);
         }
 
         $conversation = Conversation::between(Auth::id(), $other->id);
@@ -290,14 +312,46 @@ class ChatController extends Controller
             return $this->sendMessage($request, $conversation);
         }
 
-        $existing = MessageRequest::where('from_user_id', $me->id)
+        $existingRequest = MessageRequest::where('from_user_id', $me->id)
             ->where('to_user_id', $other->id)
             ->where('status', MessageRequest::STATUS_PENDING)
-            ->exists();
-        if ($existing) {
+            ->first();
+        if ($existingRequest) {
+            // Find the existing conversation
+            $existingConversation = Conversation::where(function ($q) use ($me, $other): void {
+                $q->where('user1_id', $me->id)->where('user2_id', $other->id)
+                    ->orWhere('user1_id', $other->id)->where('user2_id', $me->id);
+            })->first();
+            
+            if ($existingConversation) {
+                $existingConversation->load(['user1:id,display_name,fullname,profile_picture,last_seen_at', 'user2:id,display_name,fullname,profile_picture,last_seen_at']);
+                $otherUser = $existingConversation->otherUser($me->id);
+                
+                return response()->json([
+                    'message' => 'You already have a pending request to this user',
+                    'conversation_id' => $existingConversation->id,
+                    'conversation' => [
+                        'id' => $existingConversation->id,
+                        'other_user' => [
+                            'id' => $otherUser->id,
+                            'display_name' => $otherUser->display_name,
+                            'fullname' => $otherUser->fullname,
+                            'profile_picture' => $otherUser->profile_picture,
+                            'is_online' => $otherUser->isOnline(),
+                        ],
+                        'updated_at' => $existingConversation->updated_at->toIso8601String(),
+                    ],
+                ], 200); // Return 200 with conversation data
+            }
+            
             return response()->json(['message' => 'You already have a pending request to this user'], 422);
         }
 
+        // Create conversation immediately so sender can see it in their chat list
+        $conversation = Conversation::between($me->id, $other->id);
+        $conversation->touch(); // Ensure updated_at is current
+        
+        // Create the message request
         $req = MessageRequest::create([
             'from_user_id' => $me->id,
             'to_user_id' => $other->id,
@@ -306,6 +360,15 @@ class ChatController extends Controller
         ]);
         $req->load('fromUser:id,display_name,fullname,profile_picture');
 
+        // Add message to conversation so it appears in sender's chat list
+        $message = $conversation->messages()->create([
+            'sender_id' => $me->id,
+            'body' => $request->body,
+        ]);
+        $message->load('sender:id,display_name,fullname,profile_picture');
+        
+        $conversation->load(['user1:id,display_name,fullname,profile_picture,last_seen_at', 'user2:id,display_name,fullname,profile_picture,last_seen_at']);
+
         $notif = Notification::notify($other->id, 'message_request', $me->id, 'message_request', $req->id, [
             'excerpt' => \Str::limit($request->body, 80),
         ]);
@@ -313,9 +376,36 @@ class ChatController extends Controller
             broadcast(new NotificationSent($notif));
         }
 
+        $otherUser = $conversation->otherUser($me->id);
+        
         return response()->json([
             'message_request' => $req,
-            'message' => 'Message request sent. They will see it in their requests.',
+            'message' => [
+                'id' => $message->id,
+                'sender_id' => $message->sender_id,
+                'body' => $message->body,
+                'read_at' => $message->read_at,
+                'created_at' => $message->created_at->toIso8601String(),
+                'conversation_id' => $conversation->id,
+                'sender' => [
+                    'id' => $me->id,
+                    'display_name' => $me->display_name,
+                    'fullname' => $me->fullname,
+                    'profile_picture' => $me->profile_picture,
+                ],
+            ],
+            'conversation_id' => $conversation->id,
+            'conversation' => [
+                'id' => $conversation->id,
+                'other_user' => [
+                    'id' => $otherUser->id,
+                    'display_name' => $otherUser->display_name,
+                    'fullname' => $otherUser->fullname,
+                    'profile_picture' => $otherUser->profile_picture,
+                    'is_online' => $otherUser->isOnline(),
+                ],
+                'updated_at' => $conversation->updated_at->toIso8601String(),
+            ],
         ], 201);
     }
 
@@ -400,7 +490,8 @@ class ChatController extends Controller
     }
 
     /**
-     * Accept a message request: create conversation, add message, notify sender.
+     * Accept a message request: mark as accepted, notify sender.
+     * (Conversation and message already created when request was sent)
      */
     public function acceptRequest(MessageRequest $messageRequest)
     {
@@ -412,14 +503,12 @@ class ChatController extends Controller
         }
 
         $messageRequest->update(['status' => MessageRequest::STATUS_ACCEPTED]);
-        $conversation = Conversation::between($messageRequest->from_user_id, $messageRequest->to_user_id);
-        $message = $conversation->messages()->create([
-            'sender_id' => $messageRequest->from_user_id,
-            'body' => $messageRequest->body,
-        ]);
-        $message->load('sender:id,display_name,fullname,profile_picture');
-
-        broadcast(new MessageSent($message));
+        
+        // Conversation already exists from when request was sent
+        $conversation = Conversation::where(function ($q) use ($messageRequest): void {
+            $q->where('user1_id', $messageRequest->from_user_id)->where('user2_id', $messageRequest->to_user_id)
+                ->orWhere('user1_id', $messageRequest->to_user_id)->where('user2_id', $messageRequest->from_user_id);
+        })->firstOrFail();
 
         $notif = Notification::notify($messageRequest->from_user_id, 'message_request_accepted', Auth::id(), 'conversation', $conversation->id, []);
         if ($notif) {

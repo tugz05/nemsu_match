@@ -8,6 +8,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Message extends Model
 {
     protected $fillable = ['conversation_id', 'sender_id', 'body', 'read_at'];
+    
+    // Automatically update conversation's updated_at when message is created/updated
+    protected $touches = ['conversation'];
 
     protected function casts(): array
     {

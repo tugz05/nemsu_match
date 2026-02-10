@@ -53,6 +53,9 @@ class ProfileController extends Controller
         $extracurricularActivities = $decode($row->extracurricular_activities ?? null);
         $academicGoals = $decode($row->academic_goals ?? null);
         $interests = $decode($row->interests ?? null);
+        $preferredCampuses = $decode($row->preferred_campuses ?? null);
+        $idealMatchQualities = $decode($row->ideal_match_qualities ?? null);
+        $preferredCourses = $decode($row->preferred_courses ?? null);
 
         $isFollowedByUser = $currentUser->isFollowing($user);
         $followingCount = $user->following()->count();
@@ -72,11 +75,19 @@ class ProfileController extends Controller
                 'bio' => $user->bio,
                 'date_of_birth' => $user->date_of_birth,
                 'gender' => $user->gender,
+                'relationship_status' => $user->relationship_status,
+                'looking_for' => $user->looking_for,
+                'preferred_gender' => $user->preferred_gender,
+                'preferred_age_min' => $user->preferred_age_min,
+                'preferred_age_max' => $user->preferred_age_max,
                 'courses' => $courses,
                 'research_interests' => $researchInterests,
                 'extracurricular_activities' => $extracurricularActivities,
                 'academic_goals' => $academicGoals,
                 'interests' => $interests,
+                'preferred_campuses' => $preferredCampuses,
+                'ideal_match_qualities' => $idealMatchQualities,
+                'preferred_courses' => $preferredCourses,
                 'following_count' => $followingCount,
                 'followers_count' => $followersCount,
                 'posts_count' => $postsCount,

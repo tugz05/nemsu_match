@@ -797,6 +797,42 @@ onUnmounted(() => {
             @submit="submitReport"
         />
 
+        <!-- Floating Action Buttons - Vertically Stacked -->
+        <Teleport to="body">
+            <div class="fixed right-4 bottom-32 z-50 flex flex-col gap-4">
+                <!-- Create Post Button -->
+                <button
+                    @click="showCreatePost = true"
+                    class="w-16 h-16 bg-gradient-to-br from-amber-400 via-yellow-500 to-amber-500 rounded-full flex items-center justify-center shadow-2xl hover:shadow-[0_20px_50px_rgba(251,191,36,0.5)] hover:scale-125 transition-all duration-300 group fab-float"
+                    title="Create Post"
+                >
+                    <svg class="w-8 h-8 text-white drop-shadow-lg group-hover:rotate-90 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M12 4v16m8-8H4" />
+                    </svg>
+                </button>
+
+                <!-- Browse/Discover Button -->
+                <button
+                    @click="router.visit('/browse')"
+                    class="w-16 h-16 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-full flex items-center justify-center shadow-2xl hover:shadow-[0_20px_50px_rgba(6,182,212,0.5)] hover:scale-125 transition-all duration-300 group fab-float"
+                    title="Browse Matches"
+                >
+                    <svg class="w-8 h-8 text-white drop-shadow-lg group-hover:scale-110 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                    </svg>
+                </button>
+
+                <!-- Discover Button -->
+                <button
+                    @click="router.visit('/like-you')"
+                    class="w-16 h-16 bg-gradient-to-br from-pink-500 via-red-500 to-rose-600 rounded-full flex items-center justify-center shadow-2xl hover:shadow-[0_20px_50px_rgba(236,72,153,0.5)] hover:scale-125 transition-all duration-300 group fab-float animate-pulse-glow"
+                    title="Discover"
+                >
+                    <Heart class="w-8 h-8 text-white fill-white drop-shadow-lg group-hover:scale-110 transition-transform duration-300" stroke-width="2" />
+                </button>
+            </div>
+        </Teleport>
+
         <BottomNav active-tab="home" />
     </div>
 </template>
@@ -824,12 +860,51 @@ onUnmounted(() => {
     }
 }
 
+@keyframes fab-float {
+    0%, 100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-8px);
+    }
+}
+
+@keyframes pulse-glow {
+    0%, 100% {
+        box-shadow: 0 0 20px rgba(236, 72, 153, 0.4), 0 0 40px rgba(236, 72, 153, 0.2);
+    }
+    50% {
+        box-shadow: 0 0 30px rgba(236, 72, 153, 0.6), 0 0 60px rgba(236, 72, 153, 0.3);
+    }
+}
+
 .animate-slide-up {
     animation: slide-up 0.3s ease-out;
 }
 
 .animate-scale-in {
     animation: scale-in 0.2s ease-out;
+}
+
+.fab-float {
+    animation: fab-float 3s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Stagger animation for FABs */
+.fab-float:nth-child(1) {
+    animation-delay: 0s;
+}
+
+.fab-float:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.fab-float:nth-child(3) {
+    animation-delay: 0.4s;
 }
 
 .fade-enter-active,
@@ -844,5 +919,12 @@ onUnmounted(() => {
 
 .ml-13 {
     margin-left: 52px;
+}
+
+/* Make buttons more tactile on mobile */
+@media (hover: none) and (pointer: coarse) {
+    button:active {
+        transform: scale(0.9) !important;
+    }
 }
 </style>

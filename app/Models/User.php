@@ -38,6 +38,14 @@ class User extends Authenticatable
         'date_of_birth',
         'gender',
         'interests',
+        'relationship_status',
+        'looking_for',
+        'preferred_gender',
+        'preferred_age_min',
+        'preferred_age_max',
+        'preferred_campuses',
+        'ideal_match_qualities',
+        'preferred_courses',
         'profile_completed',
         'nemsu_id',
     ];
@@ -69,11 +77,16 @@ class User extends Authenticatable
             'profile_completed' => 'boolean',
             'last_seen_at' => 'datetime',
             'is_admin' => 'boolean',
+            'preferred_age_min' => 'integer',
+            'preferred_age_max' => 'integer',
             'courses' => 'array',
             'research_interests' => 'array',
             'extracurricular_activities' => 'array',
             'academic_goals' => 'array',
             'interests' => 'array',
+            'preferred_campuses' => 'array',
+            'ideal_match_qualities' => 'array',
+            'preferred_courses' => 'array',
         ];
     }
 
@@ -216,5 +229,11 @@ class User extends Authenticatable
     public function swipeActionsReceived(): HasMany
     {
         return $this->hasMany(SwipeAction::class, 'target_user_id');
+    }
+
+    /** Gallery photos uploaded by the user */
+    public function galleryPhotos(): HasMany
+    {
+        return $this->hasMany(UserGalleryPhoto::class);
     }
 }

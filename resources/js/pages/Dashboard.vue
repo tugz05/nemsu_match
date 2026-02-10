@@ -205,29 +205,29 @@ const activeTab = ref('home');
 
                 <!-- Action Buttons - Floating and Always on Top -->
                 <div class="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 max-w-md w-full px-4">
-                    <div class="flex items-center justify-center gap-6">
+                    <div class="flex items-center justify-center gap-8">
                         <!-- Pass Button -->
                         <button
                             @click="handlePass"
-                            class="w-16 h-16 bg-white border-2 border-gray-300 rounded-full flex items-center justify-center shadow-2xl hover:shadow-[0_20px_50px_rgba(0,0,0,0.3)] hover:scale-110 transition-all group active:scale-95"
+                            class="w-20 h-20 bg-white border-3 border-gray-300 rounded-full flex items-center justify-center shadow-2xl hover:shadow-[0_25px_60px_rgba(239,68,68,0.4)] hover:scale-125 hover:border-red-400 transition-all duration-300 group active:scale-95 fab-bounce"
                         >
-                            <X class="w-8 h-8 text-gray-500 group-hover:text-red-500 transition-colors" stroke-width="2.5" />
+                            <X class="w-10 h-10 text-gray-500 group-hover:text-red-500 group-hover:rotate-90 transition-all duration-300" stroke-width="3" />
                         </button>
 
                         <!-- Super Like Button -->
                         <button
                             @click="handleSuperLike"
-                            class="w-14 h-14 bg-gradient-to-br from-blue-600 to-cyan-500 rounded-full flex items-center justify-center shadow-2xl hover:shadow-[0_20px_50px_rgba(37,99,235,0.5)] hover:scale-110 transition-all active:scale-95"
+                            class="w-18 h-18 bg-gradient-to-br from-amber-400 via-yellow-500 to-amber-500 rounded-full flex items-center justify-center shadow-2xl hover:shadow-[0_25px_60px_rgba(251,191,36,0.6)] hover:scale-125 transition-all duration-300 active:scale-95 fab-bounce animate-pulse-slow"
                         >
-                            <Star class="w-7 h-7 text-white fill-white" />
+                            <Star class="w-9 h-9 text-white fill-white drop-shadow-lg" />
                         </button>
 
                         <!-- Like Button -->
                         <button
                             @click="handleLike"
-                            class="w-16 h-16 bg-gradient-to-br from-blue-600 to-cyan-500 rounded-full flex items-center justify-center shadow-2xl hover:shadow-[0_20px_50px_rgba(37,99,235,0.5)] hover:scale-110 transition-all group active:scale-95"
+                            class="w-20 h-20 bg-gradient-to-br from-pink-500 via-red-500 to-rose-600 rounded-full flex items-center justify-center shadow-2xl hover:shadow-[0_25px_60px_rgba(236,72,153,0.6)] hover:scale-125 transition-all duration-300 group active:scale-95 fab-bounce"
                         >
-                            <Heart class="w-8 h-8 text-white group-hover:fill-white transition-all" stroke-width="2.5" />
+                            <Heart class="w-10 h-10 text-white group-hover:fill-white group-hover:scale-110 transition-all duration-300" stroke-width="3" />
                         </button>
                     </div>
                 </div>
@@ -328,7 +328,27 @@ const activeTab = ref('home');
     }
 }
 
+@keyframes fab-bounce {
+    0%, 100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-4px);
+    }
+}
+
 .animate-pulse-slow {
     animation: pulse-slow 2s ease-in-out infinite;
+}
+
+.fab-bounce:hover {
+    animation: fab-bounce 0.6s ease-in-out infinite;
+}
+
+/* Make buttons even more tactile on mobile */
+@media (hover: none) and (pointer: coarse) {
+    button:active {
+        transform: scale(0.9) !important;
+    }
 }
 </style>

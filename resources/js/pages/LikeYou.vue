@@ -23,7 +23,7 @@ interface MatchUser {
     extracurricular_activities?: string[] | unknown;
     academic_goals?: string[] | unknown;
     interests?: string[] | unknown;
-    compatibility_score: number;
+    compatibility_score?: number | null;
     common_tags: string[];
 }
 
@@ -47,7 +47,8 @@ interface WhoLikedMeUser {
     date_of_birth: string | null;
     age: number | null;
     gender: string | null;
-    their_intent: 'dating' | 'friend' | 'study_buddy';
+    their_intent?: 'dating' | 'friend' | 'study_buddy';
+    my_intent?: 'dating' | 'friend' | 'study_buddy';
     liked_at: string;
 }
 
@@ -68,8 +69,7 @@ interface MutualMatchUser {
     intent?: string;
 }
 
-type DiscoverTab = 'discover' | 'match_back' | 'matches';
-type IntentFilter = 'all' | 'dating' | 'friend' | 'study_buddy';
+type DiscoverTab = 'discover' | 'recent' | 'matches';
 
 interface MatchedUserForModal {
     id: number;
@@ -93,12 +93,10 @@ const lastPage = ref(1);
 const total = ref(0);
 const followLoading = ref<number | null>(null);
 
-// Main tabs: Discover (swipe) | Match-back | Matches
+// Main tabs: Discover (swipe) | Recent (who liked you) | Matches
 const activeTab = ref<DiscoverTab>('discover');
-// Classification under Match-back and Matches: All | Heart | Smile | Study
-const intentFilter = ref<IntentFilter>('all');
 
-// Match-back: who liked me (you haven't liked back)
+// Recent: who liked me (you haven't liked back)
 const whoLikedMeList = ref<WhoLikedMeUser[]>([]);
 const whoLikedMeLoading = ref(false);
 const whoLikedMeLoadingMore = ref(false);
@@ -200,9 +198,11 @@ const interestBadges = computed(() => {
 });
 
 async function fetchMatches(page: number) {
-    const res = await fetch(`/api/matchmaking?page=${page}`, {
+    // Avoid cached GET responses so random feed changes between requests.
+    const res = await fetch(`/api/matchmaking/discover?page=${page}&_ts=${Date.now()}`, {
         credentials: 'same-origin',
         headers: { 'X-CSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
+        cache: 'no-store',
     });
     if (!res.ok) {
         loading.value = false;
@@ -228,13 +228,12 @@ async function loadMore() {
     await fetchMatches(currentPage.value + 1);
 }
 
-const intentQuery = () => (intentFilter.value === 'all' ? '' : `&intent=${intentFilter.value}`);
 
 async function fetchWhoLikedMe(page = 1) {
     if (page > 1) whoLikedMeLoadingMore.value = true;
     else whoLikedMeLoading.value = true;
     try {
-        const res = await fetch(`/api/matchmaking/who-liked-me?page=${page}${intentQuery()}`, {
+        const res = await fetch(`/api/matchmaking/my-recent-likes?page=${page}`, {
             credentials: 'same-origin',
             headers: { 'X-CSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
         });
@@ -255,7 +254,7 @@ async function fetchMutual(page = 1) {
     if (page > 1) mutualLoadingMore.value = true;
     else mutualLoading.value = true;
     try {
-        const res = await fetch(`/api/matchmaking/mutual?page=${page}${intentQuery()}`, {
+        const res = await fetch(`/api/matchmaking/mutual?page=${page}`, {
             credentials: 'same-origin',
             headers: { Accept: 'application/json' },
         });
@@ -274,23 +273,10 @@ async function fetchMutual(page = 1) {
 
 function setTab(tab: DiscoverTab) {
     activeTab.value = tab;
-    if (tab === 'match_back' && whoLikedMeList.value.length === 0 && !whoLikedMeLoading.value) fetchWhoLikedMe(1);
+    if (tab === 'recent' && whoLikedMeList.value.length === 0 && !whoLikedMeLoading.value) fetchWhoLikedMe(1);
     if (tab === 'matches' && mutualList.value.length === 0 && !mutualLoading.value) fetchMutual(1);
 }
 
-function setIntentFilter(filter: IntentFilter) {
-    intentFilter.value = filter;
-    if (activeTab.value === 'match_back') {
-        whoLikedMeList.value = [];
-        whoLikedMePage.value = 1;
-        fetchWhoLikedMe(1);
-    }
-    if (activeTab.value === 'matches') {
-        mutualList.value = [];
-        mutualPage.value = 1;
-        fetchMutual(1);
-    }
-}
 
 function intentLabel(intent: string): string {
     switch (intent) {
@@ -307,6 +293,15 @@ function intentIcon(intent: string) {
         case 'friend': return Smile;
         case 'study_buddy': return BookOpen;
         default: return Heart;
+    }
+}
+
+function intentColor(intent: string): string {
+    switch (intent) {
+        case 'dating': return 'text-pink-600';
+        case 'friend': return 'text-amber-600';
+        case 'study_buddy': return 'text-teal-600';
+        default: return 'text-blue-600';
     }
 }
 
@@ -676,11 +671,11 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                 </button>
                 <button
                     type="button"
-                    :class="activeTab === 'match_back' ? 'border-primary text-primary font-semibold' : 'border-transparent text-muted-foreground hover:text-foreground'"
+                    :class="activeTab === 'recent' ? 'border-primary text-primary font-semibold' : 'border-transparent text-muted-foreground hover:text-foreground'"
                     class="flex-1 min-w-0 py-2.5 text-xs sm:text-sm border-b-2 transition-colors px-1 truncate"
-                    @click="setTab('match_back')"
+                    @click="setTab('recent')"
                 >
-                    Match-back
+                    Recent
                 </button>
                 <button
                     type="button"
@@ -691,58 +686,20 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                     Matches
                 </button>
             </div>
-            <!-- Classification under Match-back / Matches: All | Heart | Smile | Study -->
-            <div
-                v-if="activeTab === 'match_back' || activeTab === 'matches'"
-                class="flex border-t border-gray-100 min-w-0 bg-gray-50/80"
-            >
-                <button
-                    type="button"
-                    :class="intentFilter === 'all' ? 'border-primary text-primary font-semibold' : 'border-transparent text-gray-600 hover:text-gray-900'"
-                    class="flex-1 min-w-0 py-2 text-xs border-b-2 transition-colors truncate px-1"
-                    @click="setIntentFilter('all')"
-                >
-                    All
-                </button>
-                <button
-                    type="button"
-                    :class="intentFilter === 'dating' ? 'border-primary text-primary font-semibold' : 'border-transparent text-gray-600 hover:text-gray-900'"
-                    class="flex-1 min-w-0 py-2 text-xs border-b-2 transition-colors flex items-center justify-center gap-0.5 px-1"
-                    @click="setIntentFilter('dating')"
-                >
-                    <Heart class="w-3.5 h-3.5 shrink-0" />
-                    <span class="truncate">Heart</span>
-                </button>
-                <button
-                    type="button"
-                    :class="intentFilter === 'friend' ? 'border-primary text-primary font-semibold' : 'border-transparent text-gray-600 hover:text-gray-900'"
-                    class="flex-1 min-w-0 py-2 text-xs border-b-2 transition-colors flex items-center justify-center gap-0.5 px-1"
-                    @click="setIntentFilter('friend')"
-                >
-                    <Smile class="w-3.5 h-3.5 shrink-0" />
-                    <span class="truncate">Smile</span>
-                </button>
-                <button
-                    type="button"
-                    :class="intentFilter === 'study_buddy' ? 'border-primary text-primary font-semibold' : 'border-transparent text-gray-600 hover:text-gray-900'"
-                    class="flex-1 min-w-0 py-2 text-xs border-b-2 transition-colors flex items-center justify-center gap-0.5 px-1"
-                    @click="setIntentFilter('study_buddy')"
-                >
-                    <BookOpen class="w-3.5 h-3.5 shrink-0" />
-                    <span class="truncate">Study</span>
-                </button>
-            </div>
         </header>
 
         <!-- Full-bleed main: reserve space for action buttons + bottom nav (safe area on mobile) -->
         <main class="flex-1 min-h-0 flex flex-col overflow-hidden relative discover-main">
-            <!-- Match-back: who liked you -->
-            <template v-if="activeTab === 'match_back'">
-                <div class="flex-1 min-h-0 overflow-y-auto bg-white pb-6">
-                    <div v-if="whoLikedMeLoading && whoLikedMeList.length === 0" class="flex justify-center py-16">
-                        <div class="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            <!-- Recent: who liked you -->
+            <template v-if="activeTab === 'recent'">
+                <div class="flex-1 min-h-0 overflow-y-auto bg-gradient-to-br from-blue-50 via-white to-cyan-50 pb-6">
+                    <div v-if="whoLikedMeLoading && whoLikedMeList.length === 0" class="flex justify-center py-20">
+                        <div class="flex flex-col items-center gap-3">
+                            <div class="w-12 h-12 border-4 border-pink-500 border-t-transparent rounded-full animate-spin" />
+                            <p class="text-sm text-gray-600 font-medium">Loading your admirers...</p>
+                        </div>
                     </div>
-                    <div v-else-if="whoLikedMeList.length === 0" class="flex flex-col items-center justify-center py-16 px-6 text-gray-500">
+                    <div v-else-if="whoLikedMeList.length === 0" class="flex flex-col items-center justify-center py-20 px-6">
                         <Heart class="w-14 h-14 mb-3 opacity-50" />
                         <p class="text-center font-medium">No one to match back yet</p>
                         <p class="text-sm mt-1 text-center">When someone likes you, they’ll show up here.</p>
@@ -764,12 +721,12 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                                     <p v-if="u.campus" class="text-xs text-gray-500 truncate">{{ u.campus }}</p>
                                 </button>
                                 <p class="text-xs text-gray-600 mt-1 flex items-center gap-1">
-                                    <component :is="intentIcon(u.their_intent)" class="w-3.5 h-3.5" />
-                                    Wants to match ({{ intentLabel(u.their_intent) }})
+                                    <component :is="intentIcon(u.my_intent)" class="w-3.5 h-3.5" />
+                                    You liked: {{ intentLabel(u.my_intent) }}
                                 </p>
                                 <div class="flex gap-2 mt-3">
-                                    <button type="button" :disabled="matchBackActionUserId === u.id" @click="pass(u)" class="px-4 py-2 rounded-xl bg-gray-200 text-gray-700 text-sm font-semibold hover:bg-gray-300 disabled:opacity-50">Pass</button>
-                                    <button type="button" :disabled="matchBackActionUserId === u.id" @click="matchBack(u)" class="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-sm font-semibold hover:opacity-95 disabled:opacity-50">{{ matchBackActionUserId === u.id ? '…' : 'Match back' }}</button>
+                                    <button type="button" @click="openProfileForMatch(u.id)" class="flex-1 px-4 py-2 rounded-xl bg-gray-200 text-gray-700 text-sm font-semibold hover:bg-gray-300">View Profile</button>
+                                    <button type="button" @click="openChatForMatch(u.id)" class="flex-1 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-sm font-semibold hover:opacity-95">Message</button>
                                 </div>
                             </div>
                         </li>
@@ -892,7 +849,7 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                                 <!-- Overlay gradient for text readability (below badge and card info) -->
                                 <div class="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent discover-card-overlay" aria-hidden="true" />
                                 <!-- Match badge: gradient pill, more engaging -->
-                                <div class="absolute top-5 left-4 z-10 discover-badge">
+                                <div v-if="currentProfile.compatibility_score != null" class="absolute top-5 left-4 z-10 discover-badge">
                                     <Sparkles class="w-5 h-5 text-amber-200 shrink-0" />
                                     <span class="text-lg font-black tabular-nums text-white">{{ currentProfile.compatibility_score }}%</span>
                                     <span class="text-xs font-bold uppercase tracking-widest text-white/95">match</span>
@@ -940,12 +897,12 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                     </div>
 
                     <!-- Vertical action bar on the right (mobile-first, always visible) -->
-                    <div class="discover-actions flex flex-col items-center justify-center gap-2 sm:gap-3 py-2">
+                    <div class="discover-actions flex flex-col items-center justify-center gap-4 sm:gap-5 py-2">
                         <button
                             type="button"
                             @click="handleIgnore"
                             :disabled="isExiting"
-                            class="action-btn action-btn--ignored w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-white/95 backdrop-blur shadow-lg flex items-center justify-center border-2 border-gray-200 group disabled:opacity-60 shrink-0"
+                            class="action-btn action-btn--ignored w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-white/95 backdrop-blur shadow-2xl flex items-center justify-center border-3 border-gray-300 group disabled:opacity-60 shrink-0 hover:scale-125 hover:shadow-[0_20px_50px_rgba(239,68,68,0.4)] hover:border-red-400 transition-all duration-300"
                             :class="[
                                 actionsIntroActive ? 'btn-intro delay-0' : '',
                                 'btn-float float-0',
@@ -954,13 +911,13 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                             aria-label="Ignore"
                             title="Ignore"
                         >
-                            <X class="w-6 h-6 sm:w-7 sm:h-7 text-gray-500 group-hover:text-red-500" stroke-width="2.5" />
+                            <X class="w-8 h-8 sm:w-9 sm:h-9 text-gray-500 group-hover:text-red-500 group-hover:rotate-90 transition-all duration-300" stroke-width="3" />
                         </button>
                         <button
                             type="button"
                             @click="handleFriend"
                             :disabled="isExiting"
-                            class="action-btn action-btn--friend w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-amber-50/95 backdrop-blur shadow-lg flex items-center justify-center text-amber-500 border-2 border-amber-400 disabled:opacity-60 shrink-0"
+                            class="action-btn action-btn--friend w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-gradient-to-br from-amber-100 to-amber-200 backdrop-blur shadow-2xl flex items-center justify-center text-amber-600 border-3 border-amber-400 disabled:opacity-60 shrink-0 hover:scale-125 hover:shadow-[0_20px_50px_rgba(251,191,36,0.5)] hover:from-amber-200 hover:to-amber-300 transition-all duration-300 group"
                             :class="[
                                 actionsIntroActive ? 'btn-intro delay-1' : '',
                                 'btn-float float-1',
@@ -969,13 +926,13 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                             aria-label="Friend"
                             title="Friend"
                         >
-                            <Smile class="w-6 h-6 sm:w-7 sm:h-7" stroke-width="2" />
+                            <Smile class="w-8 h-8 sm:w-9 sm:h-9 group-hover:scale-110 transition-transform duration-300" stroke-width="2.5" />
                         </button>
                         <button
                             type="button"
                             @click="handleStudyBuddy"
                             :disabled="isExiting"
-                            class="action-btn action-btn--study w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-teal-50/95 backdrop-blur shadow-lg flex items-center justify-center text-teal-600 border-2 border-teal-400 disabled:opacity-60 shrink-0"
+                            class="action-btn action-btn--study w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-gradient-to-br from-cyan-100 to-teal-200 backdrop-blur shadow-2xl flex items-center justify-center text-teal-700 border-3 border-teal-400 disabled:opacity-60 shrink-0 hover:scale-125 hover:shadow-[0_20px_50px_rgba(20,184,166,0.5)] hover:from-cyan-200 hover:to-teal-300 transition-all duration-300 group"
                             :class="[
                                 actionsIntroActive ? 'btn-intro delay-2' : '',
                                 'btn-float float-2',
@@ -984,13 +941,13 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                             aria-label="Study Buddy"
                             title="Study Buddy"
                         >
-                            <BookOpen class="w-6 h-6 sm:w-7 sm:h-7" stroke-width="2" />
+                            <BookOpen class="w-8 h-8 sm:w-9 sm:h-9 group-hover:scale-110 transition-transform duration-300" stroke-width="2.5" />
                         </button>
                         <button
                             type="button"
                             @click="handleDating"
                             :disabled="isExiting"
-                            class="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-primary shadow-lg flex items-center justify-center hover:scale-110 active:scale-95 transition-transform border-2 border-primary disabled:opacity-60 shrink-0"
+                            class="w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-gradient-to-br from-pink-500 via-red-500 to-rose-600 shadow-2xl flex items-center justify-center hover:scale-125 active:scale-95 transition-all duration-300 border-3 border-pink-400 disabled:opacity-60 shrink-0 hover:shadow-[0_20px_50px_rgba(236,72,153,0.6)] animate-pulse-slow group"
                             :class="[
                                 'action-btn action-btn--dating',
                                 actionsIntroActive ? 'btn-intro delay-3' : '',
@@ -1000,7 +957,7 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                             aria-label="Dating"
                             title="Dating"
                         >
-                            <Heart class="w-6 h-6 sm:w-7 sm:h-7 text-primary-foreground fill-current" stroke-width="2.5" />
+                            <Heart class="w-8 h-8 sm:w-9 sm:h-9 text-white fill-white group-hover:scale-110 transition-transform duration-300 drop-shadow-lg" stroke-width="2.5" />
                         </button>
                     </div>
 
@@ -1413,11 +1370,40 @@ function displayName(u: MatchUser | MatchedUser | null): string {
     animation: glowPulse 520ms cubic-bezier(0.22, 1.1, 0.36, 1);
 }
 
+@keyframes pulse-slow {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.85;
+        transform: scale(1.03);
+    }
+}
+
+.animate-pulse-slow {
+    animation: pulse-slow 2s ease-in-out infinite;
+}
+
+/* Enhanced hover effects for bigger buttons */
+.action-btn {
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.action-btn:hover:not(:disabled) {
+    filter: brightness(1.1);
+}
+
+.action-btn:active:not(:disabled) {
+    transform: scale(0.92) !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .btn-intro,
     .btn-float,
     .btn-pop,
-    .btn-glow {
+    .btn-glow,
+    .animate-pulse-slow {
         animation: none !important;
     }
     .action-btn,
@@ -1428,6 +1414,31 @@ function displayName(u: MatchUser | MatchedUser | null): string {
     }
     .btn-ripple::after {
         animation: none !important;
+    }
+}
+
+/* Match-back & Matches Card Animations */
+.matchback-card,
+.matches-card {
+    animation: card-slide-in 0.4s ease-out both;
+    animation-delay: calc(0.05s * var(--index, 0));
+}
+
+@keyframes card-slide-in {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .matchback-card,
+    .matches-card {
+        animation: none;
     }
 }
 </style>

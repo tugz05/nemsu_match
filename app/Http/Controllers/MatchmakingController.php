@@ -9,13 +9,16 @@ use App\Models\Notification;
 use App\Models\SwipeAction;
 use App\Models\User;
 use App\Services\MatchmakingService;
+use App\Services\DiscoverMatchmakingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Carbon;
 
 class MatchmakingController extends Controller
 {
     public function __construct(
-        private MatchmakingService $matchmaking
+        private MatchmakingService $matchmaking,
+        private DiscoverMatchmakingService $discoverMatchmaking
     ) {}
 
     /**
@@ -69,6 +72,64 @@ class MatchmakingController extends Controller
         $this->notifyHighCompatibilityMatches($user, $paginator->items());
 
         return response()->json([
+            'feed' => 'browse_scored',
+            'data' => $data,
+            'current_page' => $paginator->currentPage(),
+            'last_page' => $paginator->lastPage(),
+            'per_page' => $paginator->perPage(),
+            'total' => $paginator->total(),
+        ]);
+    }
+
+    /**
+     * GET /api/matchmaking/discover?page=1
+     * Discover suggestions (random feed).
+     */
+    public function discover(Request $request)
+    {
+        $user = Auth::user();
+
+        if (! $user->profile_completed) {
+            return response()->json(['message' => 'Complete your profile to see matches.'], 422);
+        }
+
+        $page = max(1, (int) $request->input('page', 1));
+        $paginator = $this->discoverMatchmaking->getMatches($user, $page);
+
+        $data = collect($paginator->items())->map(function (array $item): array {
+            $u = $item['user'];
+            $age = $u->date_of_birth
+                ? (int) Carbon::instance($u->date_of_birth)->diffInYears(now())
+                : null;
+
+            $out = [
+                'id' => $u->id,
+                'display_name' => $u->display_name,
+                'fullname' => $u->fullname,
+                'profile_picture' => $u->profile_picture,
+                'campus' => $u->campus,
+                'academic_program' => $u->academic_program,
+                'year_level' => $u->year_level,
+                'bio' => $u->bio,
+                'date_of_birth' => $u->date_of_birth?->format('Y-m-d'),
+                'age' => $age,
+                'gender' => $u->gender,
+                'courses' => $u->courses,
+                'research_interests' => $u->research_interests,
+                'extracurricular_activities' => $u->extracurricular_activities,
+                'academic_goals' => $u->academic_goals,
+                'interests' => $u->interests,
+                'compatibility_score' => $item['compatibility_score'],
+                'common_tags' => $item['common_tags'],
+            ];
+            if (isset($item['score_breakdown'])) {
+                $out['score_breakdown'] = $item['score_breakdown'];
+            }
+            return $out;
+        })->values()->all();
+
+        return response()->json([
+            'feed' => 'discover_random',
             'data' => $data,
             'current_page' => $paginator->currentPage(),
             'last_page' => $paginator->lastPage(),
@@ -380,6 +441,59 @@ class MatchmakingController extends Controller
     }
 
     /**
+     * GET /api/matchmaking/my-recent-likes
+     * Returns paginated list of users YOU have liked (with heart, smile, or study buddy).
+     * Shows all three intent types together.
+     */
+    public function myRecentLikes(Request $request)
+    {
+        $me = Auth::user();
+        $page = max(1, (int) $request->input('page', 1));
+        $perPage = 20;
+
+        $intents = [SwipeAction::INTENT_DATING, SwipeAction::INTENT_FRIEND, SwipeAction::INTENT_STUDY_BUDDY];
+
+        $query = SwipeAction::query()
+            ->where('user_id', $me->id)
+            ->whereIn('intent', $intents)
+            ->with('targetUser:id,display_name,fullname,profile_picture,campus,academic_program,year_level,bio,date_of_birth,gender');
+
+        $paginator = $query->orderByDesc('updated_at')->paginate($perPage, ['*'], 'page', $page);
+
+        $data = collect($paginator->items())
+            ->filter(fn (SwipeAction $a) => $a->targetUser !== null)
+            ->map(function (SwipeAction $action): array {
+                $u = $action->targetUser;
+                $age = $u->date_of_birth ? (int) $u->date_of_birth->diffInYears(now()) : null;
+                return [
+                    'id' => $u->id,
+                    'display_name' => $u->display_name,
+                    'fullname' => $u->fullname,
+                    'profile_picture' => $u->profile_picture,
+                    'campus' => $u->campus,
+                    'academic_program' => $u->academic_program,
+                    'year_level' => $u->year_level,
+                    'bio' => $u->bio,
+                    'date_of_birth' => $u->date_of_birth?->format('Y-m-d'),
+                    'age' => $age,
+                    'gender' => $u->gender,
+                    'my_intent' => $action->intent,
+                    'liked_at' => $action->updated_at->toIso8601String(),
+                ];
+            })
+            ->values()
+            ->all();
+
+        return response()->json([
+            'data' => $data,
+            'current_page' => $paginator->currentPage(),
+            'last_page' => $paginator->lastPage(),
+            'per_page' => $paginator->perPage(),
+            'total' => $paginator->total(),
+        ]);
+    }
+
+    /**
      * GET /api/matchmaking/mutual?page=1&intent=dating|friend|study_buddy
      * Mutual matches: users you and who have both liked each other. Optional intent filters by your like type.
      */
@@ -446,12 +560,14 @@ class MatchmakingController extends Controller
         $lastPage = max(1, (int) ceil($total / $perPage));
         $pageItems = $sorted->forPage($page, $perPage);
 
-        $data = $pageItems->map(function (array $item) use ($users): array {
+        $data = $pageItems->map(function (array $item) use ($users): ?array {
             $u = $users->get($item['id']);
             if (! $u) {
                 return null;
             }
-            $age = $u->date_of_birth ? (int) $u->date_of_birth->diffInYears(now()) : null;
+            $age = $u->date_of_birth
+                ? (int) Carbon::instance($u->date_of_birth)->diffInYears(now())
+                : null;
             return [
                 'id' => $u->id,
                 'display_name' => $u->display_name,

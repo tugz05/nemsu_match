@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Events\NotificationSent;
 use App\Models\Notification;
 use App\Models\User;
+use App\Models\UserReport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -22,7 +23,9 @@ class UserController extends Controller
             return response()->json(['data' => []]);
         }
 
-        $currentUserId = Auth::id();
+        /** @var \App\Models\User $authUser */
+        $authUser = Auth::user();
+        $currentUserId = $authUser->id;
         $term = '%'.$q.'%';
 
         $users = User::query()
@@ -37,7 +40,7 @@ class UserController extends Controller
             ->limit(20)
             ->get();
 
-        $followingIds = Auth::user()->following()->pluck('following_id')->flip();
+        $followingIds = $authUser->following()->pluck('following_id')->flip();
 
         $data = $users->map(function (User $user) use ($followingIds): array {
             return [
@@ -58,6 +61,7 @@ class UserController extends Controller
      */
     public function toggleFollow(User $user)
     {
+        /** @var \App\Models\User $currentUser */
         $currentUser = Auth::user();
 
         if ($currentUser->id === $user->id) {
@@ -78,5 +82,43 @@ class UserController extends Controller
         }
 
         return response()->json(['following' => true]);
+    }
+
+    /**
+     * Report a user (safety).
+     */
+    public function report(Request $request, User $user)
+    {
+        /** @var \App\Models\User $me */
+        $me = Auth::user();
+
+        if ((int) $me->id === (int) $user->id) {
+            return response()->json(['message' => 'You cannot report your own profile.'], 422);
+        }
+
+        $validated = $request->validate([
+            'reason' => 'required|string|in:spam,harassment,inappropriate,misleading,other',
+            'description' => 'nullable|string|max:500',
+        ]);
+
+        $existing = UserReport::query()
+            ->where('reporter_id', $me->id)
+            ->where('reported_user_id', $user->id)
+            ->where('status', 'pending')
+            ->first();
+
+        if ($existing) {
+            return response()->json(['message' => 'You have already reported this user.'], 409);
+        }
+
+        UserReport::create([
+            'reporter_id' => $me->id,
+            'reported_user_id' => $user->id,
+            'reason' => $validated['reason'],
+            'description' => $validated['description'] ?? null,
+            'status' => 'pending',
+        ]);
+
+        return response()->json(['message' => 'User reported successfully. We will review it shortly.'], 201);
     }
 }
