@@ -24,6 +24,7 @@ export interface RealtimeNotificationPayload {
         excerpt?: string;
         is_reply?: boolean;
         is_reply_to_you?: boolean;
+        intent?: string;
     } | null;
     read_at: string | null;
     created_at: string;

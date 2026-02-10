@@ -219,7 +219,7 @@ watch(
 );
 
 function goBack() {
-    router.visit('/home');
+    router.visit('/browse');
 }
 
 async function handleDeletePost() {
@@ -268,6 +268,7 @@ async function handleDeletePost() {
                     :is-post-owner="!!post.is_own_post"
                     :follow-loading="followLoading"
                     :menu-open="showPostMenu"
+                    :enable-see-more="true"
                     @go-to-profile="(userId) => router.visit(`/profile/${userId}`)"
                     @follow="toggleFollow"
                     @menu-toggle="showPostMenu = !showPostMenu"

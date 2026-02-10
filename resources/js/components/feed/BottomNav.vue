@@ -7,6 +7,7 @@ import { useCsrfToken } from '@/composables/useCsrfToken';
 /** Which tab is active: 'home' | 'announcements' | 'likeyou' | 'chat' | 'account' | null (none, e.g. on Notifications page) */
 const props = defineProps<{
     activeTab?: 'home' | 'announcements' | 'likeyou' | 'chat' | 'account' | null;
+    /** Discover badge: use prop if provided, else fetched "who liked me" (match-back) count */
     likeYouBadge?: number;
     /** Override chat badge; if not provided, fetches unread message count from API */
     chatBadge?: number;
@@ -16,6 +17,7 @@ const props = defineProps<{
 
 const getCsrfToken = useCsrfToken();
 const fetchedUnreadChatCount = ref(0);
+const fetchedLikeYouBadgeCount = ref(0);
 
 async function fetchUnreadChatCount() {
     try {
@@ -32,10 +34,30 @@ async function fetchUnreadChatCount() {
     }
 }
 
+async function fetchLikeYouBadgeCount() {
+    try {
+        const res = await fetch('/api/matchmaking/who-liked-me-count', {
+            credentials: 'same-origin',
+            headers: { 'X-CSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
+        });
+        if (res.ok) {
+            const data = await res.json();
+            fetchedLikeYouBadgeCount.value = data.count ?? 0;
+        }
+    } catch {
+        // ignore
+    }
+}
+
 /** Chat badge: use prop if provided, else fetched unread count */
 const chatBadgeCount = computed(() => props.chatBadge ?? fetchedUnreadChatCount.value);
+/** Discover badge: use prop if provided, else fetched "who liked me" count */
+const likeYouBadgeCount = computed(() => props.likeYouBadge ?? fetchedLikeYouBadgeCount.value);
 
-onMounted(() => fetchUnreadChatCount());
+onMounted(() => {
+    fetchUnreadChatCount();
+    fetchLikeYouBadgeCount();
+});
 
 const emit = defineEmits<{
     'update:activeTab': [value: 'home' | 'announcements' | 'likeyou' | 'chat'];
@@ -43,7 +65,8 @@ const emit = defineEmits<{
 
 function goHome() {
     if (props.interactive) emit('update:activeTab', 'home');
-    else router.visit('/home');
+    // For MVP, repurpose Home as Browse (preferences-based list)
+    else router.visit('/browse');
 }
 
 function setActiveAndStay(tab: 'likeyou' | 'chat') {
@@ -67,7 +90,7 @@ function goAnnouncements() {
     <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-50">
         <div class="max-w-2xl mx-auto px-6 py-3">
             <div class="flex items-center justify-between">
-                <!-- Home -->
+                <!-- Browse (repurposed Home) -->
                 <button
                     type="button"
                     @click="goHome"
@@ -77,18 +100,7 @@ function goAnnouncements() {
                     <svg class="w-6 h-6" :fill="activeTab === 'home' ? 'currentColor' : 'none'" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
                     </svg>
-                    <span class="text-xs font-semibold">Home</span>
-                </button>
-
-                <!-- Announcements -->
-                <button
-                    type="button"
-                    @click="goAnnouncements"
-                    class="flex flex-col items-center gap-1 py-2 px-4 transition-all"
-                    :class="activeTab === 'announcements' ? 'text-blue-600' : 'text-gray-400 hover:text-blue-600'"
-                >
-                    <Megaphone class="w-6 h-6" />
-                    <span class="text-xs font-semibold">News</span>
+                    <span class="text-xs font-semibold">Browse</span>
                 </button>
 
                 <!-- Discover (Matchmaking) -->
@@ -101,10 +113,10 @@ function goAnnouncements() {
                     <div class="relative">
                         <Heart class="w-6 h-6" :fill="activeTab === 'likeyou' ? 'currentColor' : 'none'" />
                         <span
-                            v-if="(likeYouBadge ?? 3) > 0"
+                            v-if="likeYouBadgeCount > 0"
                             class="absolute -top-1 -right-2 w-5 h-5 bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-xs font-bold rounded-full flex items-center justify-center animate-pulse"
                         >
-                            {{ (likeYouBadge ?? 3) > 99 ? '99+' : (likeYouBadge ?? 3) }}
+                            {{ likeYouBadgeCount > 99 ? '99+' : likeYouBadgeCount }}
                         </span>
                     </div>
                     <span class="text-xs font-semibold">Discover</span>

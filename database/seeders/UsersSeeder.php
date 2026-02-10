@@ -8,8 +8,10 @@ use Illuminate\Database\Seeder;
 class UsersSeeder extends Seeder
 {
     /**
-     * Delete previously seeded users (nemsu_id like 'SEED-%'), then seed 500 users
-     * with full profile data. Profile pictures are set from API image URLs.
+     * Delete previously seeded users (nemsu_id like 'SEED-%'), then seed users
+     * with all profile fields populated via UserFactory (basic info, academic,
+     * interests, relationship_status, looking_for, preferred_gender, preferred_age_*,
+     * preferred_campuses, ideal_match_qualities, preferred_courses, etc.).
      */
     public function run(): void
     {
@@ -19,7 +21,7 @@ class UsersSeeder extends Seeder
         }
 
         $target = 500;
-        $this->command->info("Creating {$target} users (profile pictures from API)...");
+        $this->command->info("Creating {$target} users with all user table fields...");
 
         User::factory()->count($target)->create();
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { Head, router } from '@inertiajs/vue3';
-import { Heart, X, Sparkles, Smile, BookOpen, ChevronLeft } from 'lucide-vue-next';
+import { Heart, X, Sparkles, Smile, BookOpen, ChevronLeft, MessageCircle } from 'lucide-vue-next';
 import { BottomNav } from '@/components/feed';
 import { useCsrfToken } from '@/composables/useCsrfToken';
 import { profilePictureSrc } from '@/composables/useProfilePictureSrc';
@@ -34,8 +34,8 @@ interface MatchedUser {
     profile_picture: string | null;
 }
 
-/** User as returned from GET /api/matchmaking/likes */
-interface LikedUser {
+/** User as returned from GET /api/matchmaking/who-liked-me */
+interface WhoLikedMeUser {
     id: number;
     display_name: string;
     fullname: string;
@@ -47,14 +47,41 @@ interface LikedUser {
     date_of_birth: string | null;
     age: number | null;
     gender: string | null;
+    their_intent: 'dating' | 'friend' | 'study_buddy';
     liked_at: string;
-    matched: boolean;
 }
 
-type DiscoverTab = 'discover' | 'heart' | 'study_buddy' | 'smile';
+/** User as returned from GET /api/matchmaking/mutual */
+interface MutualMatchUser {
+    id: number;
+    display_name: string;
+    fullname: string;
+    profile_picture: string | null;
+    campus: string | null;
+    academic_program: string | null;
+    year_level: string | null;
+    bio: string | null;
+    date_of_birth: string | null;
+    age: number | null;
+    gender: string | null;
+    matched_at: string;
+    intent?: string;
+}
+
+type DiscoverTab = 'discover' | 'match_back' | 'matches';
+type IntentFilter = 'all' | 'dating' | 'friend' | 'study_buddy';
+
+interface MatchedUserForModal {
+    id: number;
+    display_name?: string;
+    fullname?: string;
+    profile_picture?: string | null;
+}
 
 const props = defineProps<{
     user?: { id: number; display_name?: string; profile_picture?: string | null };
+    /** When set (e.g. from /like-you?show_match=id), show the match modal for this user on load */
+    showMatchUser?: MatchedUserForModal | null;
 }>();
 
 const getCsrfToken = useCsrfToken();
@@ -66,14 +93,25 @@ const lastPage = ref(1);
 const total = ref(0);
 const followLoading = ref<number | null>(null);
 
-// Tabs: discover (swipe) | heart | study_buddy | smile (lists of liked users)
+// Main tabs: Discover (swipe) | Match-back | Matches
 const activeTab = ref<DiscoverTab>('discover');
-const likedLists = ref<Record<DiscoverTab, { data: LikedUser[]; page: number; lastPage: number; total: number; loading: boolean }>>({
-    discover: { data: [], page: 1, lastPage: 1, total: 0, loading: false },
-    heart: { data: [], page: 1, lastPage: 1, total: 0, loading: false },
-    study_buddy: { data: [], page: 1, lastPage: 1, total: 0, loading: false },
-    smile: { data: [], page: 1, lastPage: 1, total: 0, loading: false },
-});
+// Classification under Match-back and Matches: All | Heart | Smile | Study
+const intentFilter = ref<IntentFilter>('all');
+
+// Match-back: who liked me (you haven't liked back)
+const whoLikedMeList = ref<WhoLikedMeUser[]>([]);
+const whoLikedMeLoading = ref(false);
+const whoLikedMeLoadingMore = ref(false);
+const whoLikedMePage = ref(1);
+const whoLikedMeLastPage = ref(1);
+const matchBackActionUserId = ref<number | null>(null);
+
+// Matches: mutual matches
+const mutualList = ref<MutualMatchUser[]>([]);
+const mutualLoading = ref(false);
+const mutualLoadingMore = ref(false);
+const mutualPage = ref(1);
+const mutualLastPage = ref(1);
 
 // Match modal (when mutual like)
 const matchModalUser = ref<MatchedUser | null>(null);
@@ -93,12 +131,15 @@ let actionsIntroTimer: number | undefined;
 // Swipe state
 const swipeStartX = ref(0);
 const swipeCurrentX = ref(0);
+const swipeStartY = ref(0);
+const swipeCurrentY = ref(0);
 const isDragging = ref(false);
 const exitDirection = ref<'left' | 'right' | null>(null);
 const isExiting = ref(false);
 /** When true, next card appears at rest with no transition (avoids bounce-back). */
 const skipNextTransition = ref(false);
 const SWIPE_THRESHOLD = 80;
+const TAP_MOVE_THRESHOLD = 12;
 const ROTATE_FACTOR = 0.15;
 const EXIT_DURATION_MS = 380;
 
@@ -152,7 +193,10 @@ function ensureStringArray(v: unknown): string[] {
 const interestBadges = computed(() => {
     const p = currentProfile.value;
     if (!p) return [];
-    return ensureStringArray(p.interests).slice(0, 6);
+    const fromInterests = ensureStringArray(p.interests);
+    const fromCommon = Array.isArray(p.common_tags) ? p.common_tags.slice(0, 6) : [];
+    const combined = fromInterests.length ? fromInterests : fromCommon;
+    return combined.slice(0, 6);
 });
 
 async function fetchMatches(page: number) {
@@ -184,44 +228,147 @@ async function loadMore() {
     await fetchMatches(currentPage.value + 1);
 }
 
-/** Fetch liked users for a list tab (heart = dating, study_buddy, smile = friend). */
-async function fetchLikes(tab: DiscoverTab, page = 1) {
-    const intent = tab === 'heart' ? 'dating' : tab === 'smile' ? 'friend' : tab;
-    if (intent === 'discover') return;
-    const list = likedLists.value[tab];
-    if (list.loading) return;
-    list.loading = true;
+const intentQuery = () => (intentFilter.value === 'all' ? '' : `&intent=${intentFilter.value}`);
+
+async function fetchWhoLikedMe(page = 1) {
+    if (page > 1) whoLikedMeLoadingMore.value = true;
+    else whoLikedMeLoading.value = true;
     try {
-        const res = await fetch(`/api/matchmaking/likes?intent=${intent}&page=${page}`, {
+        const res = await fetch(`/api/matchmaking/who-liked-me?page=${page}${intentQuery()}`, {
             credentials: 'same-origin',
             headers: { 'X-CSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
         });
-        if (!res.ok) {
-            list.loading = false;
-            return;
-        }
+        if (!res.ok) return;
         const data = await res.json();
-        const items = (data.data ?? []) as LikedUser[];
-        if (page === 1) {
-            list.data = items;
-            list.page = 1;
-        } else {
-            list.data = [...list.data, ...items];
-            list.page = page;
-        }
-        list.lastPage = data.last_page ?? 1;
-        list.total = data.total ?? 0;
+        const items = (data.data ?? []) as WhoLikedMeUser[];
+        if (page === 1) whoLikedMeList.value = items;
+        else whoLikedMeList.value = [...whoLikedMeList.value, ...items];
+        whoLikedMePage.value = data.current_page ?? page;
+        whoLikedMeLastPage.value = data.last_page ?? page;
     } finally {
-        list.loading = false;
+        whoLikedMeLoading.value = false;
+        whoLikedMeLoadingMore.value = false;
+    }
+}
+
+async function fetchMutual(page = 1) {
+    if (page > 1) mutualLoadingMore.value = true;
+    else mutualLoading.value = true;
+    try {
+        const res = await fetch(`/api/matchmaking/mutual?page=${page}${intentQuery()}`, {
+            credentials: 'same-origin',
+            headers: { Accept: 'application/json' },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const items = (data.data ?? []) as MutualMatchUser[];
+        if (page === 1) mutualList.value = items;
+        else mutualList.value = [...mutualList.value, ...items];
+        mutualPage.value = data.current_page ?? page;
+        mutualLastPage.value = data.last_page ?? page;
+    } finally {
+        mutualLoading.value = false;
+        mutualLoadingMore.value = false;
     }
 }
 
 function setTab(tab: DiscoverTab) {
     activeTab.value = tab;
-    if (tab !== 'discover') {
-        const list = likedLists.value[tab];
-        if (list.data.length === 0 && !list.loading) fetchLikes(tab, 1);
+    if (tab === 'match_back' && whoLikedMeList.value.length === 0 && !whoLikedMeLoading.value) fetchWhoLikedMe(1);
+    if (tab === 'matches' && mutualList.value.length === 0 && !mutualLoading.value) fetchMutual(1);
+}
+
+function setIntentFilter(filter: IntentFilter) {
+    intentFilter.value = filter;
+    if (activeTab.value === 'match_back') {
+        whoLikedMeList.value = [];
+        whoLikedMePage.value = 1;
+        fetchWhoLikedMe(1);
     }
+    if (activeTab.value === 'matches') {
+        mutualList.value = [];
+        mutualPage.value = 1;
+        fetchMutual(1);
+    }
+}
+
+function intentLabel(intent: string): string {
+    switch (intent) {
+        case 'dating': return 'Heart';
+        case 'friend': return 'Smile';
+        case 'study_buddy': return 'Study';
+        default: return 'Match';
+    }
+}
+
+function intentIcon(intent: string) {
+    switch (intent) {
+        case 'dating': return Heart;
+        case 'friend': return Smile;
+        case 'study_buddy': return BookOpen;
+        default: return Heart;
+    }
+}
+
+async function matchBack(user: WhoLikedMeUser) {
+    matchBackActionUserId.value = user.id;
+    try {
+        const res = await fetch('/api/matchmaking/action', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'X-CSRF-TOKEN': getCsrfToken(),
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ target_user_id: user.id, intent: user.their_intent }),
+        });
+        const data = await res.json();
+        whoLikedMeList.value = whoLikedMeList.value.filter((u) => u.id !== user.id);
+        if (data.matched && data.other_user) {
+            matchModalUser.value = data.other_user;
+        }
+    } finally {
+        matchBackActionUserId.value = null;
+    }
+}
+
+async function pass(user: WhoLikedMeUser) {
+    matchBackActionUserId.value = user.id;
+    try {
+        await fetch('/api/matchmaking/action', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'X-CSRF-TOKEN': getCsrfToken(),
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ target_user_id: user.id, intent: 'ignored' }),
+        });
+        whoLikedMeList.value = whoLikedMeList.value.filter((u) => u.id !== user.id);
+    } finally {
+        matchBackActionUserId.value = null;
+    }
+}
+
+function openProfileForMatch(id: number) {
+    router.visit(`/profile/${id}`);
+}
+
+function openChatForMatch(userId: number) {
+    router.visit(`/chat?user=${userId}`);
+}
+
+function formatMatchedAt(iso: string): string {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000);
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays} days ago`;
+    return d.toLocaleDateString();
 }
 
 function nextProfile() {
@@ -361,6 +508,8 @@ function resetSwipeState() {
     isDragging.value = false;
     swipeStartX.value = 0;
     swipeCurrentX.value = 0;
+    swipeStartY.value = 0;
+    swipeCurrentY.value = 0;
     skipNextTransition.value = true;
     nextTick(() => {
         skipNextTransition.value = false;
@@ -371,12 +520,17 @@ function resetSwipeState() {
 function getClientX(e: TouchEvent | MouseEvent): number {
     return 'touches' in e ? e.touches[0].clientX : e.clientX;
 }
+function getClientY(e: TouchEvent | MouseEvent): number {
+    return 'touches' in e ? e.touches[0].clientY : e.clientY;
+}
 
 function onSwipeStart(e: TouchEvent | MouseEvent) {
     if (isExiting.value || !currentProfile.value) return;
     isDragging.value = true;
     swipeStartX.value = getClientX(e);
     swipeCurrentX.value = swipeStartX.value;
+    swipeStartY.value = getClientY(e);
+    swipeCurrentY.value = swipeStartY.value;
     if (!('touches' in e)) {
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
@@ -386,6 +540,7 @@ function onSwipeStart(e: TouchEvent | MouseEvent) {
 function onMouseMove(e: MouseEvent) {
     if (!isDragging.value) return;
     swipeCurrentX.value = e.clientX;
+    swipeCurrentY.value = e.clientY;
 }
 
 function onMouseUp() {
@@ -396,27 +551,32 @@ function onMouseUp() {
 
 function onSwipeMove(e: TouchEvent | MouseEvent) {
     if (!isDragging.value) return;
-    if ('touches' in e) swipeCurrentX.value = e.touches[0].clientX;
+    if ('touches' in e) {
+        swipeCurrentX.value = e.touches[0].clientX;
+        swipeCurrentY.value = e.touches[0].clientY;
+    }
 }
 
 function onSwipeEnd() {
     if (!isDragging.value) return;
-    const delta = swipeCurrentX.value - swipeStartX.value;
+    const deltaX = swipeCurrentX.value - swipeStartX.value;
+    const deltaY = swipeCurrentY.value - swipeStartY.value;
     const p = currentProfile.value;
-    if (Math.abs(delta) >= SWIPE_THRESHOLD && p) {
+    if (Math.abs(deltaX) >= SWIPE_THRESHOLD && p) {
         isExiting.value = true;
-        exitDirection.value = delta < 0 ? 'left' : 'right';
+        exitDirection.value = deltaX < 0 ? 'left' : 'right';
         const targetId = p.id;
-        const intent = delta < 0 ? 'ignored' : 'dating';
+        const intent = deltaX < 0 ? 'ignored' : 'dating';
         setTimeout(() => {
             nextProfile();
             resetSwipeState();
             void submitAction(targetId, intent);
         }, EXIT_DURATION_MS);
+    } else if (Math.abs(deltaX) < TAP_MOVE_THRESHOLD && Math.abs(deltaY) < TAP_MOVE_THRESHOLD && p) {
+        resetSwipeState();
+        router.visit(`/profile/${p.id}`);
     } else {
-        isDragging.value = false;
-        swipeStartX.value = 0;
-        swipeCurrentX.value = 0;
+        resetSwipeState();
     }
 }
 
@@ -432,10 +592,36 @@ function goToChatFromMatch() {
 }
 
 function goBack() {
-    router.visit('/home');
+    router.visit('/browse');
 }
 
-onMounted(() => fetchMatches(1));
+onMounted(() => {
+    fetchMatches(1);
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    if (tab === 'match_back' || tab === 'matches') {
+        setTab(tab);
+    }
+});
+
+// When showMatchUser is set (e.g. from notification → like-you?show_match=id), open the match modal (works on first load and when Inertia updates props)
+watch(
+    () => props.showMatchUser,
+    (val) => {
+        if (val?.id) {
+            activeTab.value = 'matches';
+            nextTick(() => {
+                matchModalUser.value = {
+                    id: val.id,
+                    display_name: val.display_name ?? '',
+                    fullname: val.fullname ?? '',
+                    profile_picture: val.profile_picture ?? null,
+                };
+            });
+        }
+    },
+    { immediate: true },
+);
 
 // When switching back to Discover, replay the action-row intro animation
 watch(
@@ -478,7 +664,7 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                     <Sparkles class="w-5 h-5 text-primary" />
                 </button>
             </div>
-            <!-- Tabs: Discover | Heart | Study | Smile (compact to avoid overflow) -->
+            <!-- Tabs: Discover | Match-back | Matches -->
             <div class="flex border-t border-gray-100 min-w-0">
                 <button
                     type="button"
@@ -490,102 +676,161 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                 </button>
                 <button
                     type="button"
-                    :class="activeTab === 'heart' ? 'border-primary text-primary font-semibold' : 'border-transparent text-muted-foreground hover:text-foreground'"
-                    class="flex-1 min-w-0 py-2.5 text-xs sm:text-sm border-b-2 transition-colors flex items-center justify-center gap-0.5 px-1"
-                    @click="setTab('heart')"
+                    :class="activeTab === 'match_back' ? 'border-primary text-primary font-semibold' : 'border-transparent text-muted-foreground hover:text-foreground'"
+                    class="flex-1 min-w-0 py-2.5 text-xs sm:text-sm border-b-2 transition-colors px-1 truncate"
+                    @click="setTab('match_back')"
                 >
-                    <Heart class="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                    Match-back
+                </button>
+                <button
+                    type="button"
+                    :class="activeTab === 'matches' ? 'border-primary text-primary font-semibold' : 'border-transparent text-muted-foreground hover:text-foreground'"
+                    class="flex-1 min-w-0 py-2.5 text-xs sm:text-sm border-b-2 transition-colors px-1 truncate"
+                    @click="setTab('matches')"
+                >
+                    Matches
+                </button>
+            </div>
+            <!-- Classification under Match-back / Matches: All | Heart | Smile | Study -->
+            <div
+                v-if="activeTab === 'match_back' || activeTab === 'matches'"
+                class="flex border-t border-gray-100 min-w-0 bg-gray-50/80"
+            >
+                <button
+                    type="button"
+                    :class="intentFilter === 'all' ? 'border-primary text-primary font-semibold' : 'border-transparent text-gray-600 hover:text-gray-900'"
+                    class="flex-1 min-w-0 py-2 text-xs border-b-2 transition-colors truncate px-1"
+                    @click="setIntentFilter('all')"
+                >
+                    All
+                </button>
+                <button
+                    type="button"
+                    :class="intentFilter === 'dating' ? 'border-primary text-primary font-semibold' : 'border-transparent text-gray-600 hover:text-gray-900'"
+                    class="flex-1 min-w-0 py-2 text-xs border-b-2 transition-colors flex items-center justify-center gap-0.5 px-1"
+                    @click="setIntentFilter('dating')"
+                >
+                    <Heart class="w-3.5 h-3.5 shrink-0" />
                     <span class="truncate">Heart</span>
                 </button>
                 <button
                     type="button"
-                    :class="activeTab === 'study_buddy' ? 'border-primary text-primary font-semibold' : 'border-transparent text-muted-foreground hover:text-foreground'"
-                    class="flex-1 min-w-0 py-2.5 text-xs sm:text-sm border-b-2 transition-colors flex items-center justify-center gap-0.5 px-1"
-                    @click="setTab('study_buddy')"
+                    :class="intentFilter === 'friend' ? 'border-primary text-primary font-semibold' : 'border-transparent text-gray-600 hover:text-gray-900'"
+                    class="flex-1 min-w-0 py-2 text-xs border-b-2 transition-colors flex items-center justify-center gap-0.5 px-1"
+                    @click="setIntentFilter('friend')"
                 >
-                    <BookOpen class="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                    <span class="truncate">Study</span>
+                    <Smile class="w-3.5 h-3.5 shrink-0" />
+                    <span class="truncate">Smile</span>
                 </button>
                 <button
                     type="button"
-                    :class="activeTab === 'smile' ? 'border-primary text-primary font-semibold' : 'border-transparent text-muted-foreground hover:text-foreground'"
-                    class="flex-1 min-w-0 py-2.5 text-xs sm:text-sm border-b-2 transition-colors flex items-center justify-center gap-0.5 px-1"
-                    @click="setTab('smile')"
+                    :class="intentFilter === 'study_buddy' ? 'border-primary text-primary font-semibold' : 'border-transparent text-gray-600 hover:text-gray-900'"
+                    class="flex-1 min-w-0 py-2 text-xs border-b-2 transition-colors flex items-center justify-center gap-0.5 px-1"
+                    @click="setIntentFilter('study_buddy')"
                 >
-                    <Smile class="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                    <span class="truncate">Smile</span>
+                    <BookOpen class="w-3.5 h-3.5 shrink-0" />
+                    <span class="truncate">Study</span>
                 </button>
             </div>
         </header>
 
-        <!-- Full-bleed main: reserve bottom space for fixed nav (pb-20) -->
-        <main class="flex-1 min-h-0 flex flex-col overflow-hidden relative pb-20">
-            <!-- List tabs: Heart / Study Buddy / Smile -->
-            <template v-if="activeTab !== 'discover'">
+        <!-- Full-bleed main: reserve space for action buttons + bottom nav (safe area on mobile) -->
+        <main class="flex-1 min-h-0 flex flex-col overflow-hidden relative discover-main">
+            <!-- Match-back: who liked you -->
+            <template v-if="activeTab === 'match_back'">
                 <div class="flex-1 min-h-0 overflow-y-auto bg-white pb-6">
-                    <div v-if="likedLists[activeTab].loading && likedLists[activeTab].data.length === 0" class="flex items-center justify-center py-16">
+                    <div v-if="whoLikedMeLoading && whoLikedMeList.length === 0" class="flex justify-center py-16">
                         <div class="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
                     </div>
-                    <div v-else-if="likedLists[activeTab].data.length === 0" class="flex flex-col items-center justify-center py-16 px-6 text-gray-500">
-                        <component :is="activeTab === 'heart' ? Heart : activeTab === 'study_buddy' ? BookOpen : Smile" class="w-14 h-14 mb-3 opacity-50" />
-                        <p class="text-center font-medium">No one here yet</p>
-                        <p class="text-sm mt-1 text-center">People you choose with {{ activeTab === 'heart' ? 'Heart' : activeTab === 'study_buddy' ? 'Study Buddy' : 'Smile' }} will appear here.</p>
+                    <div v-else-if="whoLikedMeList.length === 0" class="flex flex-col items-center justify-center py-16 px-6 text-gray-500">
+                        <Heart class="w-14 h-14 mb-3 opacity-50" />
+                        <p class="text-center font-medium">No one to match back yet</p>
+                        <p class="text-sm mt-1 text-center">When someone likes you, they’ll show up here.</p>
                         <button type="button" @click="setTab('discover')" class="mt-4 px-4 py-2 rounded-xl bg-primary text-primary-foreground font-medium text-sm hover:opacity-90">Discover</button>
                     </div>
                     <ul v-else class="divide-y divide-gray-100">
                         <li
-                            v-for="u in likedLists[activeTab].data"
+                            v-for="u in whoLikedMeList"
                             :key="u.id"
-                            class="flex items-center gap-4 px-4 py-3 active:bg-gray-50"
-                            @click="router.visit(`/profile/${u.id}`)"
+                            class="flex gap-4 px-4 py-3"
                         >
-                            <div class="w-14 h-14 rounded-full overflow-hidden bg-gray-200 shrink-0">
-                                <img
-                                    v-if="u.profile_picture"
-                                    :src="profilePictureSrc(u.profile_picture)"
-                                    :alt="u.display_name"
-                                    class="w-full h-full object-cover"
-                                />
-                                <span v-else class="w-full h-full flex items-center justify-center text-xl font-bold text-gray-400">{{ (u.display_name || '?').charAt(0).toUpperCase() }}</span>
-                            </div>
-                            <div class="min-w-0 flex-1">
-                                <p class="font-semibold text-gray-900 truncate">{{ u.display_name }}</p>
-                                <p v-if="u.academic_program" class="text-sm text-gray-500 truncate">{{ u.academic_program }}</p>
-                            </div>
-                            <button
-                                type="button"
-                                :disabled="!u.matched"
-                                :title="u.matched ? 'Send message' : 'Match first to message'"
-                                class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
-                                :class="u.matched ? 'bg-primary/10 text-primary hover:bg-primary/15' : 'bg-muted text-muted-foreground cursor-not-allowed'"
-                                @click.stop="u.matched && openChat(u.id)"
-                            >
-                                Message
+                            <button type="button" @click="openProfileForMatch(u.id)" class="w-16 h-16 rounded-full overflow-hidden bg-gray-100 flex-shrink-0 ring-2 ring-white shadow">
+                                <img v-if="u.profile_picture" :src="profilePictureSrc(u.profile_picture)" :alt="u.display_name" class="w-full h-full object-cover" />
+                                <div v-else class="w-full h-full flex items-center justify-center text-blue-600 font-bold text-xl">{{ (u.display_name || u.fullname || '?').charAt(0).toUpperCase() }}</div>
                             </button>
+                            <div class="flex-1 min-w-0">
+                                <button type="button" @click="openProfileForMatch(u.id)" class="text-left block w-full">
+                                    <p class="font-semibold text-gray-900 truncate">{{ u.fullname || u.display_name }}</p>
+                                    <p v-if="u.campus" class="text-xs text-gray-500 truncate">{{ u.campus }}</p>
+                                </button>
+                                <p class="text-xs text-gray-600 mt-1 flex items-center gap-1">
+                                    <component :is="intentIcon(u.their_intent)" class="w-3.5 h-3.5" />
+                                    Wants to match ({{ intentLabel(u.their_intent) }})
+                                </p>
+                                <div class="flex gap-2 mt-3">
+                                    <button type="button" :disabled="matchBackActionUserId === u.id" @click="pass(u)" class="px-4 py-2 rounded-xl bg-gray-200 text-gray-700 text-sm font-semibold hover:bg-gray-300 disabled:opacity-50">Pass</button>
+                                    <button type="button" :disabled="matchBackActionUserId === u.id" @click="matchBack(u)" class="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-sm font-semibold hover:opacity-95 disabled:opacity-50">{{ matchBackActionUserId === u.id ? '…' : 'Match back' }}</button>
+                                </div>
+                            </div>
                         </li>
                     </ul>
-                    <div v-if="likedLists[activeTab].data.length > 0 && likedLists[activeTab].page < likedLists[activeTab].lastPage" class="p-4 flex justify-center">
-                        <button
-                            type="button"
-                            :disabled="likedLists[activeTab].loading"
-                            class="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium disabled:opacity-50"
-                            @click="fetchLikes(activeTab, likedLists[activeTab].page + 1)"
-                        >
-                            {{ likedLists[activeTab].loading ? 'Loading…' : 'Load more' }}
-                        </button>
+                    <div v-if="whoLikedMeList.length > 0 && whoLikedMePage < whoLikedMeLastPage" class="p-4 flex justify-center">
+                        <button type="button" :disabled="whoLikedMeLoadingMore" class="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium disabled:opacity-50" @click="fetchWhoLikedMe(whoLikedMePage + 1)">{{ whoLikedMeLoadingMore ? 'Loading…' : 'Load more' }}</button>
                     </div>
                 </div>
             </template>
 
-            <!-- Discover: swipe cards -->
+            <!-- Matches: mutual matches -->
+            <template v-else-if="activeTab === 'matches'">
+                <div class="flex-1 min-h-0 overflow-y-auto bg-white pb-6">
+                    <div v-if="mutualLoading && mutualList.length === 0" class="flex justify-center py-16">
+                        <div class="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                    </div>
+                    <div v-else-if="mutualList.length === 0" class="flex flex-col items-center justify-center py-16 px-6 text-gray-500">
+                        <Heart class="w-14 h-14 mb-3 opacity-50" />
+                        <p class="text-center font-medium">No matches yet</p>
+                        <p class="text-sm mt-1 text-center">When you and someone like each other, they’ll appear here.</p>
+                        <button type="button" @click="setTab('discover')" class="mt-4 px-4 py-2 rounded-xl bg-primary text-primary-foreground font-medium text-sm hover:opacity-90">Discover</button>
+                    </div>
+                    <ul v-else class="divide-y divide-gray-100">
+                        <li v-for="u in mutualList" :key="u.id" class="flex items-center gap-4 px-4 py-3">
+                            <button type="button" @click="openProfileForMatch(u.id)" class="w-16 h-16 rounded-full overflow-hidden bg-gray-100 flex-shrink-0 ring-2 ring-white shadow">
+                                <img v-if="u.profile_picture" :src="profilePictureSrc(u.profile_picture)" :alt="u.display_name" class="w-full h-full object-cover" />
+                                <div v-else class="w-full h-full flex items-center justify-center text-blue-600 font-bold text-xl">{{ (u.display_name || u.fullname || '?').charAt(0).toUpperCase() }}</div>
+                            </button>
+                            <div class="min-w-0 flex-1">
+                                <button type="button" @click="openProfileForMatch(u.id)" class="text-left block w-full">
+                                    <p class="font-semibold text-gray-900 truncate">{{ u.fullname || u.display_name }}</p>
+                                    <p v-if="u.campus" class="text-xs text-gray-500 truncate">{{ u.campus }}</p>
+                                    <p v-if="u.matched_at" class="text-xs text-gray-400 mt-0.5">Matched {{ formatMatchedAt(u.matched_at) }}</p>
+                                </button>
+                                <p v-if="u.intent" class="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                                    <component :is="intentIcon(u.intent)" class="w-3 h-3" />
+                                    {{ intentLabel(u.intent) }}
+                                </p>
+                            </div>
+                            <button type="button" @click="openChatForMatch(u.id)" class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-sm font-semibold hover:opacity-95 shrink-0">
+                                <MessageCircle class="w-4 h-4" />
+                                Message
+                            </button>
+                        </li>
+                    </ul>
+                    <div v-if="mutualList.length > 0 && mutualPage < mutualLastPage" class="p-4 flex justify-center">
+                        <button type="button" :disabled="mutualLoadingMore" class="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium disabled:opacity-50" @click="fetchMutual(mutualPage + 1)">{{ mutualLoadingMore ? 'Loading…' : 'Load more' }}</button>
+                    </div>
+                </div>
+            </template>
+
+            <!-- Discover: swipe cards - wrapper gets flex height so card stack can fill it -->
             <template v-else>
+            <div class="discover-fill flex-1 min-h-0 relative flex flex-col">
             <div v-if="loading && profiles.length === 0" class="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-background to-muted">
                 <div class="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
             </div>
 
             <template v-else-if="currentProfile">
-                <!-- Full-area card stack: card fills 100% of main -->
-                <div class="absolute inset-0 flex items-stretch justify-center">
+                <!-- Full-area card stack: fills the flex wrapper so height is guaranteed -->
+                <div class="absolute inset-0 flex items-stretch justify-center discover-card-stack">
                     <!-- Next card: peeking behind with inset -->
                     <div
                         v-if="nextProfileInStack"
@@ -607,7 +852,7 @@ function displayName(u: MatchUser | MatchedUser | null): string {
 
                     <!-- Current card: FULL WIDTH & HEIGHT of main (occupies all space) -->
                     <div
-                        class="absolute inset-0 rounded-none sm:rounded-2xl overflow-hidden cursor-grab active:cursor-grabbing select-none touch-none"
+                        class="absolute inset-0 h-full w-full min-h-0 rounded-none sm:rounded-2xl overflow-hidden cursor-grab active:cursor-grabbing select-none touch-none"
                         style="z-index: 1; user-select: none;"
                         :style="cardStyle"
                         @touchstart="onSwipeStart"
@@ -615,7 +860,7 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                         @touchend="onSwipeEnd"
                         @mousedown="onSwipeStart"
                     >
-                        <div class="absolute inset-0 overflow-hidden bg-gradient-to-br from-slate-100 to-slate-200">
+                        <div class="absolute inset-0 h-full w-full min-h-0 overflow-hidden bg-gradient-to-br from-slate-100 to-slate-200">
                             <!-- NOPE / LIKE overlays -->
                             <div
                                 v-if="showNopeOverlay"
@@ -630,30 +875,30 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                                 <span class="px-6 py-3 rounded-2xl border-4 border-emerald-500 text-emerald-500 text-3xl font-black uppercase rotate-[12deg] shadow-2xl bg-white/10">Like</span>
                             </div>
 
-                            <!-- Photo / gradient fill -->
-                            <div class="absolute inset-0">
+                            <!-- Photo / gradient fill: explicit full size so content is visible -->
+                            <div class="absolute inset-0 h-full w-full min-h-0 discover-photo-layer">
                                 <img
                                     v-if="currentProfile.profile_picture"
                                     :src="profilePictureSrc(currentProfile.profile_picture)"
                                     :alt="displayName(currentProfile)"
-                                    class="w-full h-full object-cover"
+                                    class="absolute inset-0 w-full h-full object-cover discover-card-img"
                                 />
                                 <div
                                     v-else
-                                    class="discover-placeholder w-full h-full flex items-center justify-center text-primary-foreground text-8xl font-bold bg-primary"
+                                    class="discover-placeholder absolute inset-0 w-full h-full flex items-center justify-center text-primary-foreground text-6xl sm:text-8xl font-bold bg-primary"
                                 >
                                     {{ displayName(currentProfile).charAt(0).toUpperCase() }}
                                 </div>
-                                <!-- Overlay gradient for text readability -->
-                                <div class="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
+                                <!-- Overlay gradient for text readability (below badge and card info) -->
+                                <div class="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent discover-card-overlay" aria-hidden="true" />
                                 <!-- Match badge: gradient pill, more engaging -->
                                 <div class="absolute top-5 left-4 z-10 discover-badge">
                                     <Sparkles class="w-5 h-5 text-amber-200 shrink-0" />
                                     <span class="text-lg font-black tabular-nums text-white">{{ currentProfile.compatibility_score }}%</span>
                                     <span class="text-xs font-bold uppercase tracking-widest text-white/95">match</span>
                                 </div>
-                                <!-- Name, course, interests: above action buttons (pb-44 clears button row + nav) -->
-                                <div class="absolute bottom-0 left-0 right-0 p-4 pr-4 pb-44 text-white">
+                                <!-- Name, course, interests: above overlay so always visible -->
+                                <div class="absolute left-0 right-0 p-4 discover-card-info text-white z-10">
                                     <!-- Interest badges -->
                                     <div v-if="interestBadges.length" class="flex flex-wrap gap-1.5 mb-3">
                                         <span
@@ -664,20 +909,43 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                                             {{ interest }}
                                         </span>
                                     </div>
-                                    <h2 class="text-2xl sm:text-3xl font-black tracking-tight drop-shadow-lg">{{ displayName(currentProfile) }}</h2>
-                                    <p v-if="currentProfile.academic_program" class="text-sm sm:text-base font-semibold text-white/95 mt-1 drop-shadow">{{ currentProfile.academic_program }}</p>
+                                    <h2 class="text-2xl sm:text-3xl font-black tracking-tight drop-shadow-lg">
+                                        {{ displayName(currentProfile) }}
+                                    </h2>
+                                    <p
+                                        v-if="currentProfile.academic_program"
+                                        class="text-sm sm:text-base font-semibold text-white/95 mt-1 drop-shadow"
+                                    >
+                                        {{ currentProfile.academic_program }}
+                                    </p>
+                                    <p
+                                        v-if="currentProfile.campus || currentProfile.year_level"
+                                        class="text-xs sm:text-sm text-white/90 mt-0.5 drop-shadow-sm"
+                                    >
+                                        <span v-if="currentProfile.campus">{{ currentProfile.campus }}</span>
+                                        <span v-if="currentProfile.campus && currentProfile.year_level"> • </span>
+                                        <span v-if="currentProfile.year_level">{{ currentProfile.year_level }}</span>
+                                    </p>
+                                    <p
+                                        v-if="currentProfile.age || currentProfile.gender"
+                                        class="text-xs sm:text-sm text-white/80 mt-0.5 drop-shadow-sm"
+                                    >
+                                        <span v-if="currentProfile.age">{{ currentProfile.age }} yrs</span>
+                                        <span v-if="currentProfile.age && currentProfile.gender"> • </span>
+                                        <span v-if="currentProfile.gender">{{ currentProfile.gender }}</span>
+                                    </p>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Horizontal action buttons: above bottom nav (bottom-24 = 6rem from main bottom) -->
-                    <div class="absolute bottom-24 left-0 right-0 z-30 flex items-center justify-center gap-3 px-4">
+                    <!-- Vertical action bar on the right (mobile-first, always visible) -->
+                    <div class="discover-actions flex flex-col items-center justify-center gap-2 sm:gap-3 py-2">
                         <button
                             type="button"
                             @click="handleIgnore"
                             :disabled="isExiting"
-                            class="action-btn action-btn--ignored w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-white/95 backdrop-blur shadow-lg flex items-center justify-center border-2 border-gray-200 group disabled:opacity-60"
+                            class="action-btn action-btn--ignored w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-white/95 backdrop-blur shadow-lg flex items-center justify-center border-2 border-gray-200 group disabled:opacity-60 shrink-0"
                             :class="[
                                 actionsIntroActive ? 'btn-intro delay-0' : '',
                                 'btn-float float-0',
@@ -686,13 +954,13 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                             aria-label="Ignore"
                             title="Ignore"
                         >
-                            <X class="w-7 h-7 sm:w-8 sm:h-8 text-gray-500 group-hover:text-red-500" stroke-width="2.5" />
+                            <X class="w-6 h-6 sm:w-7 sm:h-7 text-gray-500 group-hover:text-red-500" stroke-width="2.5" />
                         </button>
                         <button
                             type="button"
                             @click="handleFriend"
                             :disabled="isExiting"
-                            class="action-btn action-btn--friend w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-amber-50/95 backdrop-blur shadow-lg flex items-center justify-center text-amber-500 border-2 border-amber-400 disabled:opacity-60"
+                            class="action-btn action-btn--friend w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-amber-50/95 backdrop-blur shadow-lg flex items-center justify-center text-amber-500 border-2 border-amber-400 disabled:opacity-60 shrink-0"
                             :class="[
                                 actionsIntroActive ? 'btn-intro delay-1' : '',
                                 'btn-float float-1',
@@ -701,13 +969,13 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                             aria-label="Friend"
                             title="Friend"
                         >
-                            <Smile class="w-7 h-7 sm:w-8 sm:h-8" stroke-width="2" />
+                            <Smile class="w-6 h-6 sm:w-7 sm:h-7" stroke-width="2" />
                         </button>
                         <button
                             type="button"
                             @click="handleStudyBuddy"
                             :disabled="isExiting"
-                            class="action-btn action-btn--study w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-teal-50/95 backdrop-blur shadow-lg flex items-center justify-center text-teal-600 border-2 border-teal-400 disabled:opacity-60"
+                            class="action-btn action-btn--study w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-teal-50/95 backdrop-blur shadow-lg flex items-center justify-center text-teal-600 border-2 border-teal-400 disabled:opacity-60 shrink-0"
                             :class="[
                                 actionsIntroActive ? 'btn-intro delay-2' : '',
                                 'btn-float float-2',
@@ -716,13 +984,13 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                             aria-label="Study Buddy"
                             title="Study Buddy"
                         >
-                            <BookOpen class="w-7 h-7 sm:w-8 sm:h-8" stroke-width="2" />
+                            <BookOpen class="w-6 h-6 sm:w-7 sm:h-7" stroke-width="2" />
                         </button>
                         <button
                             type="button"
                             @click="handleDating"
                             :disabled="isExiting"
-                            class="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-primary shadow-lg flex items-center justify-center hover:scale-110 active:scale-95 transition-transform border-2 border-primary disabled:opacity-60"
+                            class="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-primary shadow-lg flex items-center justify-center hover:scale-110 active:scale-95 transition-transform border-2 border-primary disabled:opacity-60 shrink-0"
                             :class="[
                                 'action-btn action-btn--dating',
                                 actionsIntroActive ? 'btn-intro delay-3' : '',
@@ -732,7 +1000,7 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                             aria-label="Dating"
                             title="Dating"
                         >
-                            <Heart class="w-7 h-7 sm:w-8 sm:h-8 text-primary-foreground fill-current" stroke-width="2.5" />
+                            <Heart class="w-6 h-6 sm:w-7 sm:h-7 text-primary-foreground fill-current" stroke-width="2.5" />
                         </button>
                     </div>
 
@@ -740,7 +1008,7 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                     <Transition name="action-pop">
                         <div
                             v-if="actionPopupVisible && actionPopup"
-                            class="absolute bottom-44 left-0 right-0 z-40 flex justify-center pointer-events-none"
+                            class="discover-action-popup fixed left-4 right-20 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-40 flex justify-start sm:justify-center pointer-events-none"
                         >
                             <div
                                 class="px-5 py-2.5 rounded-full shadow-xl text-sm font-semibold backdrop-blur border"
@@ -758,9 +1026,9 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                     </Transition>
                 </div>
 
-                <!-- Swipe hint: above button row (bottom-44 = same as card text padding) -->
-                <div v-if="!actionPopupVisible" class="absolute bottom-44 left-0 right-0 z-20 flex justify-center pointer-events-none">
-                    <span class="px-4 py-1.5 rounded-full bg-black/30 backdrop-blur text-white/90 text-xs font-medium">Swipe or tap buttons</span>
+                <!-- Swipe hint: bottom left so it doesn't overlap vertical buttons -->
+                <div v-if="!actionPopupVisible" class="absolute bottom-6 left-4 right-24 sm:right-1/2 z-20 flex justify-start sm:justify-center pointer-events-none">
+                    <span class="px-3 py-1.5 rounded-full bg-black/30 backdrop-blur text-white/90 text-xs font-medium">Swipe or tap buttons</span>
                 </div>
             </template>
 
@@ -771,69 +1039,69 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                 <h3 class="text-xl font-bold text-gray-900">No more profiles</h3>
                 <p class="text-gray-600 mt-2 text-center">Check back later for new matches.</p>
             </div>
+            </div>
             </template>
         </main>
 
-        <!-- Match modal: CONGRATULATIONS / It's a match [name]!! / two avatars / Say hello / Keep swiping -->
+        <!-- Match modal: Congrats! / You Have A Match! – uses app motif (blue/cyan) -->
         <Teleport to="body">
             <Transition name="match-modal">
                 <div
                     v-if="matchModalUser"
-                    class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+                    class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gradient-to-br from-blue-50/95 to-cyan-50/95 backdrop-blur-sm"
                     @click.self="closeMatchModal"
                 >
                     <div
-                        class="bg-white rounded-3xl shadow-2xl max-w-sm w-full overflow-hidden text-center animate-match-in"
+                        class="match-modal-card rounded-3xl shadow-2xl max-w-sm w-full overflow-hidden text-center bg-gradient-to-br from-blue-600 to-cyan-500"
                         @click.stop
                     >
-                        <div class="px-6 pt-8">
-                            <p class="text-xs font-bold uppercase tracking-wider text-primary">Congratulations</p>
-                            <p class="text-2xl font-bold text-gray-900 mt-1">It's a match, {{ displayName(matchModalUser) }}!!</p>
+                        <!-- Top: decorative hearts + squiggles + Congrats! -->
+                        <div class="relative pt-10 pb-2">
+                            <span class="match-modal-heart match-modal-heart-1">♥</span>
+                            <span class="match-modal-heart match-modal-heart-2">♥</span>
+                            <span class="match-modal-heart match-modal-heart-3">♥</span>
+                            <span class="match-modal-heart match-modal-heart-4">♥</span>
+                            <span class="match-modal-squiggle match-modal-squiggle-1">～</span>
+                            <span class="match-modal-squiggle match-modal-squiggle-2">～</span>
+                            <h2 class="text-4xl font-black text-white tracking-tight">Congrats!</h2>
                         </div>
-                        <!-- Two overlapping avatars with floating hearts -->
-                        <div class="relative flex justify-center items-center py-8">
-                            <div class="relative flex items-center justify-center">
-                                <div class="w-24 h-24 rounded-full overflow-hidden border-4 border-white shadow-xl flex items-center justify-center text-2xl font-bold bg-gradient-to-br from-blue-100 to-cyan-100 text-blue-600 -mr-4 z-10">
-                                    <img
-                                        v-if="props.user?.profile_picture"
-                                        :src="profilePictureSrc(props.user?.profile_picture)"
-                                        :alt="props.user?.display_name"
-                                        class="w-full h-full object-cover"
-                                    />
-                                    <span v-else>{{ (props.user?.display_name || 'You').charAt(0).toUpperCase() }}</span>
-                                </div>
-                                <div class="w-24 h-24 rounded-full overflow-hidden border-4 border-white shadow-xl flex items-center justify-center text-2xl font-bold bg-primary/10 text-primary z-20">
-                                    <img
-                                        v-if="matchModalUser.profile_picture"
-                                        :src="profilePictureSrc(matchModalUser.profile_picture)"
-                                        :alt="displayName(matchModalUser)"
-                                        class="w-full h-full object-cover"
-                                    />
-                                    <span v-else>{{ displayName(matchModalUser).charAt(0).toUpperCase() }}</span>
-                                </div>
+                        <!-- Two profile pictures side by side -->
+                        <div class="flex justify-center items-center gap-4 px-8 py-6">
+                            <div class="w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden border-4 border-white/90 shadow-xl flex items-center justify-center text-xl font-bold bg-white/20 text-white shrink-0">
+                                <img
+                                    v-if="props.user?.profile_picture"
+                                    :src="profilePictureSrc(props.user?.profile_picture)"
+                                    :alt="props.user?.display_name"
+                                    class="w-full h-full object-cover"
+                                />
+                                <span v-else>{{ (props.user?.display_name || 'You').charAt(0).toUpperCase() }}</span>
                             </div>
-                            <!-- Floating hearts -->
-                            <span class="absolute top-4 left-1/4 text-primary/70 text-2xl animate-float">❤</span>
-                            <span class="absolute top-6 right-1/4 text-primary/70 text-xl animate-float-delay">❤</span>
-                            <span class="absolute bottom-6 left-1/3 text-primary/60 text-lg animate-float">❤</span>
-                            <span class="absolute bottom-4 right-1/3 text-primary/60 text-xl animate-float-delay">❤</span>
+                            <div class="w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden border-4 border-white/90 shadow-xl flex items-center justify-center text-xl font-bold bg-white/20 text-white shrink-0">
+                                <img
+                                    v-if="matchModalUser.profile_picture"
+                                    :src="profilePictureSrc(matchModalUser.profile_picture)"
+                                    :alt="displayName(matchModalUser)"
+                                    class="w-full h-full object-cover"
+                                />
+                                <span v-else>{{ displayName(matchModalUser).charAt(0).toUpperCase() }}</span>
+                            </div>
                         </div>
-                        <p class="text-sm text-gray-600 px-6">Start a conversation now with each other</p>
-                        <div class="px-6 pb-8 pt-6 flex flex-col gap-3">
+                        <p class="text-lg sm:text-xl font-bold text-white px-4">You Have A Match!</p>
+                        <!-- Send Message: white CTA to match other pages -->
+                        <div class="px-6 pb-8 pt-6">
                             <button
                                 type="button"
                                 @click="goToChatFromMatch"
-                                class="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-primary text-primary-foreground font-semibold hover:opacity-90 transition-colors"
+                                class="w-full py-3.5 rounded-2xl bg-white text-primary font-bold text-base hover:bg-blue-50 active:scale-[0.98] transition-all shadow-lg"
                             >
-                                <Heart class="w-5 h-5 fill-current" />
-                                Say hello
+                                Send Message
                             </button>
                             <button
                                 type="button"
                                 @click="closeMatchModal"
-                                class="w-full py-3 rounded-xl bg-secondary text-secondary-foreground font-semibold hover:bg-secondary/80 transition-colors"
+                                class="mt-3 text-white/80 text-sm font-medium hover:text-white transition-colors"
                             >
-                                Keep swiping
+                                Maybe later
                             </button>
                         </div>
                     </div>
@@ -841,11 +1109,103 @@ function displayName(u: MatchUser | MatchedUser | null): string {
             </Transition>
         </Teleport>
 
-        <BottomNav active-tab="likeyou" :like-you-badge="0" />
+        <BottomNav active-tab="likeyou" />
     </div>
 </template>
 
 <style scoped>
+/* Reserve space for bottom nav + safe area so content doesn't sit under it */
+.discover-main {
+    padding-bottom: 5rem;
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+}
+
+/* Wrapper that takes flex height so absolute card stack has a defined containing block */
+.discover-fill {
+    position: relative;
+}
+
+/* Card stack fills the wrapper so profile photo and details are visible */
+.discover-card-stack {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+
+/* Photo layer fills the card so image/placeholder and text overlay are visible */
+.discover-photo-layer {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+.discover-card-overlay {
+    z-index: 1;
+    pointer-events: none;
+}
+.discover-card-img {
+    z-index: 0;
+}
+
+/* Ensure card info (name, interests, course) is on top and always visible */
+.discover-card-info {
+    bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+    padding-bottom: 1.25rem;
+    padding-right: calc(4.5rem + env(safe-area-inset-right, 0px));
+    z-index: 10;
+    isolation: isolate;
+}
+
+/* Vertical action bar on the right, centered vertically, above bottom nav */
+.discover-actions {
+    position: fixed;
+    top: 50%;
+    transform: translateY(-50%);
+    right: 0.75rem;
+    right: max(0.75rem, env(safe-area-inset-right, 0px));
+    z-index: 40;
+}
+
+/* Card info: padding so name/tags don't sit under the vertical button strip or bottom nav */
+.discover-card-info {
+    padding-bottom: 5rem;
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+    padding-right: 5rem;
+    padding-right: calc(4.5rem + env(safe-area-inset-right, 0px));
+}
+
+/* Action popup: above bottom nav, not under vertical buttons */
+.discover-action-popup {
+    bottom: 5rem;
+    bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+}
+
+/* Match modal: card scale target for transition (colors from Tailwind motif) */
+/* Floating decorative hearts and squiggles */
+.match-modal-heart,
+.match-modal-squiggle {
+    position: absolute;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 1.25rem;
+    pointer-events: none;
+    animation: match-float 3s ease-in-out infinite;
+}
+.match-modal-squiggle {
+    font-size: 1.5rem;
+    opacity: 0.7;
+}
+.match-modal-heart-1 { top: 0.5rem; left: 12%; animation-delay: 0s; }
+.match-modal-heart-2 { top: 0.25rem; right: 15%; animation-delay: 0.4s; }
+.match-modal-heart-3 { top: 2.5rem; left: 8%; animation-delay: 0.8s; }
+.match-modal-heart-4 { top: 2.25rem; right: 10%; animation-delay: 0.2s; }
+.match-modal-squiggle-1 { top: 0.75rem; left: 38%; animation-delay: 0.3s; }
+.match-modal-squiggle-2 { top: 0.5rem; right: 40%; animation-delay: 0.6s; }
+@keyframes match-float {
+    0%, 100% { transform: translateY(0) scale(1); opacity: 0.9; }
+    50% { transform: translateY(-6px) scale(1.05); opacity: 1; }
+}
+
 .match-modal-enter-active,
 .match-modal-leave-active {
     transition: opacity 0.25s ease;
@@ -854,17 +1214,17 @@ function displayName(u: MatchUser | MatchedUser | null): string {
 .match-modal-leave-to {
     opacity: 0;
 }
-.match-modal-enter-active .bg-white,
-.match-modal-leave-active .bg-white {
-    transition: transform 0.3s ease;
+.match-modal-enter-active .match-modal-card,
+.match-modal-leave-active .match-modal-card {
+    transition: transform 0.3s cubic-bezier(0.34, 1.2, 0.64, 1);
 }
-.match-modal-enter-from .bg-white {
+.match-modal-enter-from .match-modal-card {
     transform: scale(0.9);
 }
-.match-modal-enter-to .bg-white {
+.match-modal-enter-to .match-modal-card {
     transform: scale(1);
 }
-.match-modal-leave-to .bg-white {
+.match-modal-leave-to .match-modal-card {
     transform: scale(0.95);
 }
 

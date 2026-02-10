@@ -2,6 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\NotificationSent;
+use App\Models\Conversation;
+use App\Models\UserMatch;
+use App\Models\Notification;
 use App\Models\SwipeAction;
 use App\Models\User;
 use App\Services\MatchmakingService;
@@ -35,7 +39,7 @@ class MatchmakingController extends Controller
                 ? (int) $u->date_of_birth->diffInYears(now())
                 : null;
 
-            return [
+            $out = [
                 'id' => $u->id,
                 'display_name' => $u->display_name,
                 'fullname' => $u->fullname,
@@ -55,7 +59,14 @@ class MatchmakingController extends Controller
                 'compatibility_score' => $item['compatibility_score'],
                 'common_tags' => $item['common_tags'],
             ];
+            if (isset($item['score_breakdown'])) {
+                $out['score_breakdown'] = $item['score_breakdown'];
+            }
+            return $out;
         })->values()->all();
+
+        // Notify users who appear with 70%+ compatibility (they see "X has you as a 70%+ match")
+        $this->notifyHighCompatibilityMatches($user, $paginator->items());
 
         return response()->json([
             'data' => $data,
@@ -64,6 +75,48 @@ class MatchmakingController extends Controller
             'per_page' => $paginator->perPage(),
             'total' => $paginator->total(),
         ]);
+    }
+
+    /**
+     * For each candidate with compatibility_score >= 70%, send them a one-time notification
+     * that the current user has them as a high match. Dedupe: at most one per (viewer, candidate) per 24h.
+     *
+     * @param array<int, array{user: User, compatibility_score: int, ...}> $items
+     */
+    private function notifyHighCompatibilityMatches(User $viewer, array $items): void
+    {
+        $threshold = 70;
+        $cutoff = now()->subDay();
+
+        foreach ($items as $item) {
+            $score = $item['compatibility_score'] ?? 0;
+            if ($score < $threshold) {
+                continue;
+            }
+            $candidate = $item['user'];
+            if (! $candidate instanceof User || $candidate->id === $viewer->id) {
+                continue;
+            }
+            $alreadyNotified = Notification::where('user_id', $candidate->id)
+                ->where('from_user_id', $viewer->id)
+                ->where('type', 'high_compatibility_match')
+                ->where('created_at', '>=', $cutoff)
+                ->exists();
+            if ($alreadyNotified) {
+                continue;
+            }
+            $notification = Notification::notify(
+                recipientUserId: $candidate->id,
+                type: 'high_compatibility_match',
+                fromUserId: $viewer->id,
+                notifiableType: 'user',
+                notifiableId: $viewer->id,
+                data: ['compatibility_score' => $score]
+            );
+            if ($notification) {
+                broadcast(new NotificationSent($notification));
+            }
+        }
     }
 
     /**
@@ -99,16 +152,53 @@ class MatchmakingController extends Controller
                 ->whereIn('intent', [SwipeAction::INTENT_DATING, SwipeAction::INTENT_FRIEND, SwipeAction::INTENT_STUDY_BUDDY])
                 ->exists();
 
+            // Only notify "X sent you a heart match" when it's not already a mutual match (matchback case: we'll send "It's a match!" instead)
+            if (! $targetLikedMe) {
+                $type = match ($intent) {
+                    SwipeAction::INTENT_DATING => 'match_dating',
+                    SwipeAction::INTENT_FRIEND => 'match_friend',
+                    SwipeAction::INTENT_STUDY_BUDDY => 'match_study_buddy',
+                    default => null,
+                };
+                if ($type !== null) {
+                    $notification = Notification::notify(
+                        recipientUserId: $targetId,
+                        type: $type,
+                        fromUserId: $me->id,
+                        notifiableType: 'user',
+                        notifiableId: $me->id,
+                        data: ['intent' => $intent]
+                    );
+                    if ($notification) {
+                        broadcast(new NotificationSent($notification));
+                    }
+                }
+            }
+
             if ($targetLikedMe) {
                 $matched = true;
                 $other = User::find($targetId);
                 if ($other) {
+                    UserMatch::record($me->id, $other->id, $intent);
+                    Conversation::between($me->id, $other->id);
                     $otherUser = [
                         'id' => $other->id,
                         'display_name' => $other->display_name,
                         'fullname' => $other->fullname,
                         'profile_picture' => $other->profile_picture,
                     ];
+                    // Notify the other user that they have a new match (so they see "You and [Name] matched!")
+                    $mutualNotif = Notification::notify(
+                        recipientUserId: $targetId,
+                        type: 'mutual_match',
+                        fromUserId: $me->id,
+                        notifiableType: 'user',
+                        notifiableId: $me->id,
+                        data: ['intent' => $intent]
+                    );
+                    if ($mutualNotif) {
+                        broadcast(new NotificationSent($mutualNotif));
+                    }
                 }
             }
         }
@@ -192,6 +282,199 @@ class MatchmakingController extends Controller
             'last_page' => $paginator->lastPage(),
             'per_page' => $paginator->perPage(),
             'total' => $paginator->total(),
+        ]);
+    }
+
+    /**
+     * GET /api/matchmaking/who-liked-me?page=1&intent=dating|friend|study_buddy
+     * Users who liked you (heart/smile/study buddy) and you haven't liked back yet — for match-back.
+     */
+    public function whoLikedMe(Request $request)
+    {
+        $me = Auth::user();
+        $page = max(1, (int) $request->input('page', 1));
+        $perPage = 20;
+        $intentFilter = $request->input('intent');
+
+        $intents = [SwipeAction::INTENT_DATING, SwipeAction::INTENT_FRIEND, SwipeAction::INTENT_STUDY_BUDDY];
+        if (in_array($intentFilter, $intents, true)) {
+            $intents = [$intentFilter];
+        }
+
+        $query = SwipeAction::query()
+            ->where('target_user_id', $me->id)
+            ->whereIn('intent', $intents)
+            ->with('user:id,display_name,fullname,profile_picture,campus,academic_program,year_level,bio,date_of_birth,gender');
+
+        $paginator = $query->orderByDesc('updated_at')->paginate($perPage, ['*'], 'page', $page);
+
+        $userIds = collect($paginator->items())->map(fn (SwipeAction $a) => $a->user_id)->unique()->values()->all();
+        $myLikeBack = [];
+        if ($userIds !== []) {
+            $myLikeBack = SwipeAction::query()
+                ->where('user_id', $me->id)
+                ->whereIn('target_user_id', $userIds)
+                ->whereIn('intent', [SwipeAction::INTENT_DATING, SwipeAction::INTENT_FRIEND, SwipeAction::INTENT_STUDY_BUDDY])
+                ->pluck('target_user_id')
+                ->all();
+        }
+
+        $data = collect($paginator->items())
+            ->filter(fn (SwipeAction $a) => $a->user !== null && ! in_array($a->user_id, $myLikeBack, true))
+            ->map(function (SwipeAction $action): array {
+                $u = $action->user;
+                $age = $u->date_of_birth ? (int) $u->date_of_birth->diffInYears(now()) : null;
+                return [
+                    'id' => $u->id,
+                    'display_name' => $u->display_name,
+                    'fullname' => $u->fullname,
+                    'profile_picture' => $u->profile_picture,
+                    'campus' => $u->campus,
+                    'academic_program' => $u->academic_program,
+                    'year_level' => $u->year_level,
+                    'bio' => $u->bio,
+                    'date_of_birth' => $u->date_of_birth?->format('Y-m-d'),
+                    'age' => $age,
+                    'gender' => $u->gender,
+                    'their_intent' => $action->intent,
+                    'liked_at' => $action->updated_at->toIso8601String(),
+                ];
+            })
+            ->values()
+            ->all();
+
+        return response()->json([
+            'data' => $data,
+            'current_page' => $paginator->currentPage(),
+            'last_page' => $paginator->lastPage(),
+            'per_page' => $paginator->perPage(),
+            'total' => $paginator->total(),
+        ]);
+    }
+
+    /**
+     * GET /api/matchmaking/who-liked-me-count
+     * Count of users who liked you (match-back) and you haven't liked back yet. Used for Discover badge.
+     */
+    public function whoLikedMeCount()
+    {
+        $me = Auth::user();
+        $userIdsWhoLikedMe = SwipeAction::query()
+            ->where('target_user_id', $me->id)
+            ->whereIn('intent', [SwipeAction::INTENT_DATING, SwipeAction::INTENT_FRIEND, SwipeAction::INTENT_STUDY_BUDDY])
+            ->distinct()
+            ->pluck('user_id')
+            ->all();
+        if ($userIdsWhoLikedMe === []) {
+            return response()->json(['count' => 0]);
+        }
+        $likedBackCount = SwipeAction::query()
+            ->where('user_id', $me->id)
+            ->whereIn('target_user_id', $userIdsWhoLikedMe)
+            ->whereIn('intent', [SwipeAction::INTENT_DATING, SwipeAction::INTENT_FRIEND, SwipeAction::INTENT_STUDY_BUDDY])
+            ->distinct()
+            ->pluck('target_user_id')
+            ->count();
+        $count = count($userIdsWhoLikedMe) - $likedBackCount;
+        return response()->json(['count' => max(0, $count)]);
+    }
+
+    /**
+     * GET /api/matchmaking/mutual?page=1&intent=dating|friend|study_buddy
+     * Mutual matches: users you and who have both liked each other. Optional intent filters by your like type.
+     */
+    public function mutualMatches(Request $request)
+    {
+        $me = Auth::user();
+        $page = max(1, (int) $request->input('page', 1));
+        $perPage = 20;
+        $intentFilter = $request->input('intent');
+
+        $theyLikedMe = SwipeAction::query()
+            ->where('target_user_id', $me->id)
+            ->whereIn('intent', [SwipeAction::INTENT_DATING, SwipeAction::INTENT_FRIEND, SwipeAction::INTENT_STUDY_BUDDY])
+            ->pluck('user_id')
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($theyLikedMe === []) {
+            return response()->json([
+                'data' => [],
+                'current_page' => 1,
+                'last_page' => 1,
+                'per_page' => $perPage,
+                'total' => 0,
+            ]);
+        }
+
+        $intents = [SwipeAction::INTENT_DATING, SwipeAction::INTENT_FRIEND, SwipeAction::INTENT_STUDY_BUDDY];
+        if (in_array($intentFilter, $intents, true)) {
+            $intents = [$intentFilter];
+        }
+
+        $myLikes = SwipeAction::query()
+            ->where('user_id', $me->id)
+            ->whereIn('target_user_id', $theyLikedMe)
+            ->whereIn('intent', $intents)
+            ->get()
+            ->keyBy('target_user_id');
+
+        $mutualIds = collect($theyLikedMe)->filter(fn ($id) => $myLikes->has($id))->values()->all();
+        if ($mutualIds === []) {
+            return response()->json([
+                'data' => [],
+                'current_page' => 1,
+                'last_page' => 1,
+                'per_page' => $perPage,
+                'total' => 0,
+            ]);
+        }
+
+        $users = User::query()
+            ->whereIn('id', $mutualIds)
+            ->get()
+            ->keyBy('id');
+
+        $withOrder = collect($mutualIds)->map(fn ($id) => [
+            'id' => $id,
+            'matched_at' => $myLikes->get($id)?->updated_at?->toIso8601String() ?? '',
+            'intent' => $myLikes->get($id)?->intent ?? SwipeAction::INTENT_DATING,
+        ])->values();
+        $sorted = $withOrder->sortByDesc('matched_at')->values();
+        $total = $sorted->count();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $pageItems = $sorted->forPage($page, $perPage);
+
+        $data = $pageItems->map(function (array $item) use ($users): array {
+            $u = $users->get($item['id']);
+            if (! $u) {
+                return null;
+            }
+            $age = $u->date_of_birth ? (int) $u->date_of_birth->diffInYears(now()) : null;
+            return [
+                'id' => $u->id,
+                'display_name' => $u->display_name,
+                'fullname' => $u->fullname,
+                'profile_picture' => $u->profile_picture,
+                'campus' => $u->campus,
+                'academic_program' => $u->academic_program,
+                'year_level' => $u->year_level,
+                'bio' => $u->bio,
+                'date_of_birth' => $u->date_of_birth?->format('Y-m-d'),
+                'age' => $age,
+                'gender' => $u->gender,
+                'matched_at' => $item['matched_at'],
+                'intent' => $item['intent'],
+            ];
+        })->filter()->values()->all();
+
+        return response()->json([
+            'data' => $data,
+            'current_page' => $page,
+            'last_page' => $lastPage,
+            'per_page' => $perPage,
+            'total' => $total,
         ]);
     }
 }

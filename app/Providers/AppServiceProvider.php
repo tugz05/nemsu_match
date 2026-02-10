@@ -5,6 +5,7 @@ namespace App\Providers;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
@@ -26,6 +27,12 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
         $this->configureVitePreload();
+
+        // When APP_URL is HTTPS (e.g. ngrok), force all generated URLs to HTTPS to avoid mixed content
+        $appUrl = config('app.url');
+        if ($appUrl && str_starts_with(strtolower($appUrl), 'https://')) {
+            URL::forceScheme('https');
+        }
     }
 
     /**

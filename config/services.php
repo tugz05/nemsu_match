@@ -38,7 +38,8 @@ return [
     'google' => [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
-        'redirect' => env('GOOGLE_REDIRECT_URI'),
+        // Use GOOGLE_REDIRECT_URI if set, otherwise derive from APP_URL (e.g. for ngrok use APP_URL only)
+        'redirect' => env('GOOGLE_REDIRECT_URI') ?: (rtrim(env('APP_URL', 'http://localhost:8000'), '/').'/oauth/nemsu/callback'),
     ],
 
     'nemsu' => [

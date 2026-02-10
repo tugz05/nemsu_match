@@ -38,6 +38,9 @@ const loadMoreSentinel = ref<HTMLElement | null>(null);
 let observer: IntersectionObserver | null = null;
 
 const showCreatePost = ref(false);
+const creatingPost = ref(false);
+const postCreated = ref(false);
+let postCreatedTimer: number | null = null;
 
 // Comments
 const showComments = ref(false);
@@ -166,6 +169,8 @@ const createPost = async (payload: { content: string; images: File[] }) => {
     formData.append('content', payload.content);
     payload.images.forEach((file) => formData.append('images[]', file));
 
+    creatingPost.value = true;
+
     try {
         const response = await fetch('/api/posts', {
             method: 'POST',
@@ -180,12 +185,21 @@ const createPost = async (payload: { content: string; images: File[] }) => {
         if (response.ok) {
             showCreatePost.value = false;
             await fetchPosts();
+
+            postCreated.value = true;
+            if (postCreatedTimer) window.clearTimeout(postCreatedTimer);
+            postCreatedTimer = window.setTimeout(() => {
+                postCreated.value = false;
+                postCreatedTimer = null;
+            }, 2500);
         } else {
             const error = await response.json();
             console.error('Failed to create post:', error);
         }
     } catch (error) {
         console.error('Failed to create post:', error);
+    } finally {
+        creatingPost.value = false;
     }
 };
 
@@ -616,7 +630,7 @@ onUnmounted(() => {
 
         <!-- Top Bar -->
         <div class="bg-white border-b border-gray-200 sticky top-0 z-40">
-            <div class="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
+            <div class="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3 relative">
                 <div class="flex items-center gap-2 shrink-0">
                     <div class="w-10 h-10 bg-gradient-to-br from-blue-600 to-cyan-500 rounded-xl flex items-center justify-center shadow-lg">
                         <Heart class="w-6 h-6 text-white fill-white" />
@@ -659,6 +673,20 @@ onUnmounted(() => {
                         </svg>
                     </button>
                 </div>
+
+                <Transition name="fade">
+                    <div
+                        v-if="postCreated"
+                        class="absolute inset-x-0 -bottom-9 flex justify-center pointer-events-none"
+                    >
+                        <div
+                            class="inline-flex items-center gap-2 rounded-full bg-emerald-500 text-white text-xs font-semibold px-3 py-1.5 shadow-lg pointer-events-auto"
+                        >
+                            <span class="inline-block w-3 h-3 rounded-full bg-white/80" />
+                            <span>Post created</span>
+                        </div>
+                    </div>
+                </Transition>
             </div>
         </div>
 
@@ -677,6 +705,7 @@ onUnmounted(() => {
                     :is-post-owner="post.user_id === user?.id"
                     :follow-loading="followLoading === post.id"
                     :menu-open="showPostMenu === post.id"
+                    :enable-see-more="true"
                     @go-to-profile="goToProfile"
                     @follow="toggleFollow(post)"
                     @menu-toggle="togglePostMenu(post.id)"
@@ -721,6 +750,7 @@ onUnmounted(() => {
 
         <CreatePostModal
             :open="showCreatePost"
+            :creating="creatingPost"
             @close="showCreatePost = false"
             @create="createPost"
         />
@@ -800,6 +830,16 @@ onUnmounted(() => {
 
 .animate-scale-in {
     animation: scale-in 0.2s ease-out;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+    transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+}
+.fade-enter-from,
+.fade-leave-to {
+    opacity: 0;
+    transform: translateY(4px);
 }
 
 .ml-13 {

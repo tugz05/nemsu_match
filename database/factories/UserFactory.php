@@ -15,7 +15,7 @@ class UserFactory extends Factory
     protected static ?string $password = null;
 
     private static array $campuses = [
-        'Tandag', 'Bislig', 'Lianga', 'San Miguel', 'Cagwait', 'Tagbina', 'Barobo', 'Marihatag',
+        'Tandag', 'Bislig', 'Tagbina', 'Lianga', 'Cagwait', 'San Miguel', 'Marihatag Offsite', 'Cantilan',
     ];
 
     private static array $programs = [
@@ -24,7 +24,7 @@ class UserFactory extends Factory
         'BS Psychology', 'BS Accountancy', 'BS Biology', 'BS Mathematics',
     ];
 
-    private static array $yearLevels = ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year'];
+    private static array $yearLevels = ['1st Year', '2nd Year', '3rd Year', '4th Year', 'Graduate'];
 
     private static array $interestsPool = [
         'Coding', 'Gaming', 'Coffee', 'Reading', 'Music', 'Travel', 'Photography', 'Art',
@@ -51,6 +51,17 @@ class UserFactory extends Factory
     private static array $extracurricularPool = [
         'Student Council', 'Debate Club', 'Sports Team', 'Music Band', 'Theater',
         'Volunteer Org', 'Coding Club', 'Dance Troupe', 'Chess Club',
+    ];
+
+    private static array $relationshipStatuses = ['Single', 'In a Relationship', "It's Complicated"];
+
+    private static array $lookingForOptions = ['Friendship', 'Relationship', 'Casual Date'];
+
+    private static array $genderOptions = ['Male', 'Female', 'Lesbian', 'Gay'];
+
+    private static array $idealMatchPool = [
+        'Funny', 'Ambitious', 'Adventurous', 'Kind', 'Honest', 'Creative',
+        'Supportive', 'Open-minded', 'Passionate', 'Thoughtful',
     ];
 
     public function definition(): array
@@ -81,10 +92,18 @@ class UserFactory extends Factory
             'academic_goals' => $this->randomJsonSubset(self::$goalsPool, 0, 3),
             'bio' => fake()->optional(0.9)->sentence(12),
             'date_of_birth' => fake()->dateTimeBetween('-25 years', '-18 years')->format('Y-m-d'),
-            'gender' => fake()->randomElement(['Male', 'Female']),
+            'gender' => fake()->randomElement(self::$genderOptions),
             'interests' => $this->randomJsonSubset(self::$interestsPool, 2, 6),
             'profile_completed' => true,
             'nemsu_id' => 'SEED-'.Str::upper(Str::random(8)).fake()->unique()->numerify('###'),
+            'relationship_status' => fake()->randomElement(self::$relationshipStatuses),
+            'looking_for' => fake()->randomElement(self::$lookingForOptions),
+            'preferred_gender' => fake()->optional(0.7)->randomElement(array_merge([''], self::$genderOptions)),
+            'preferred_age_min' => $preferredAgeMin = fake()->optional(0.6)->numberBetween(18, 28),
+            'preferred_age_max' => $preferredAgeMin !== null ? fake()->numberBetween($preferredAgeMin, min(35, $preferredAgeMin + 10)) : fake()->optional(0.6)->numberBetween(22, 35),
+            'preferred_campuses' => $this->randomJsonSubset(self::$campuses, 0, 4),
+            'ideal_match_qualities' => $this->randomJsonSubset(self::$idealMatchPool, 0, 6),
+            'preferred_courses' => $this->randomJsonSubset(self::$coursesPool, 0, 5),
         ];
     }
 

@@ -113,7 +113,8 @@ class NEMSUOAuthController extends Controller
                 return redirect()->route('profile.setup')->with('success', 'Welcome! Please complete your profile to continue.');
             }
 
-            return redirect()->route('home.feed')->with('success', 'Welcome back, ' . ($user->display_name ?? $user->name) . '!');
+            // Main route when authenticated: Browse (preferences-based list of users)
+            return redirect()->route('browse')->with('success', 'Welcome back, ' . ($user->display_name ?? $user->name) . '!');
 
         } catch (\Exception $e) {
             \Log::error('OAuth callback failed: ' . $e->getMessage());

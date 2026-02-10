@@ -16,10 +16,20 @@ interface NotificationPreview {
     data?: { excerpt?: string; is_reply?: boolean; is_reply_to_you?: boolean; post_id?: number; comment_id?: number; conversation_id?: number };
 }
 
-const props = defineProps<{
-    open: boolean;
-    unreadCount: number;
-}>();
+/** Default route for the full notifications page (See all). */
+const NOTIFICATIONS_PAGE_ROUTE = '/notifications';
+
+const props = withDefaults(
+    defineProps<{
+        open: boolean;
+        unreadCount: number;
+        /** Route when notification has no specific target (e.g. /browse when Home is disabled) */
+        fallbackRoute?: string;
+        /** Route for "See all" link to the full notifications page */
+        notificationsRoute?: string;
+    }>(),
+    { fallbackRoute: '/home', notificationsRoute: NOTIFICATIONS_PAGE_ROUTE }
+);
 
 const emit = defineEmits<{
     'update:open': [value: boolean];
@@ -50,6 +60,19 @@ function message(n: NotificationPreview): string {
             return `${name} wants to message you`;
         case 'message_request_accepted':
             return `${name} accepted your message request`;
+        case 'match_dating':
+            return `${name} sent you a heart match`;
+        case 'match_friend':
+            return `${name} sent you a smile match`;
+        case 'match_study_buddy':
+            return `${name} wants to be your study buddy`;
+        case 'mutual_match':
+            return `It's a match! You and ${name} matched.`;
+        case 'high_compatibility_match': {
+            const score = (d as { compatibility_score?: number }).compatibility_score;
+            const pct = score != null ? `${score}%` : '70%+';
+            return `${name} has you as a ${pct} match!`;
+        }
         default:
             return `${name} interacted with you`;
     }
@@ -82,6 +105,12 @@ async function onItemClick(n: NotificationPreview) {
     emit('update:open', false);
     if (n.type === 'follow') {
         router.visit(`/profile/${n.from_user_id}`);
+    } else if (n.type === 'match_dating' || n.type === 'match_friend' || n.type === 'match_study_buddy') {
+        router.visit('/like-you?tab=match_back');
+    } else if (n.type === 'mutual_match') {
+        router.visit(`/like-you?tab=matches&show_match=${n.from_user_id}`);
+    } else if (n.type === 'high_compatibility_match') {
+        router.visit('/like-you?tab=discover');
     } else if (n.type === 'message' || n.type === 'message_request' || n.type === 'message_request_accepted') {
         const conversationId = n.notifiable_type === 'conversation' ? n.notifiable_id : n.data?.conversation_id;
         if (conversationId) router.visit(`/chat?conversation=${conversationId}`);
@@ -93,7 +122,7 @@ async function onItemClick(n: NotificationPreview) {
             const url = commentId ? `/post/${postId}#comment-${commentId}` : `/post/${postId}`;
             router.visit(url);
         } else {
-            router.visit('/home');
+            router.visit(props.fallbackRoute);
         }
     }
     if (!n.read_at) {
@@ -108,7 +137,7 @@ async function onItemClick(n: NotificationPreview) {
 
 function goToAll() {
     emit('update:open', false);
-    router.visit('/notifications');
+    router.visit(props.notificationsRoute);
 }
 </script>
 

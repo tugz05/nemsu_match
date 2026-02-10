@@ -46,9 +46,20 @@ class ProfileSetupController extends Controller
             'academic_goals.*' => 'string|max:255',
             'bio' => 'required|string|min:10|max:500',
             'date_of_birth' => 'required|date|before:today',
-            'gender' => 'required|string',
+            'gender' => 'required|string|in:Male,Female,Lesbian,Gay',
             'interests' => 'nullable|array',
             'interests.*' => 'string|max:255',
+            'relationship_status' => 'required|string|in:Single,In a Relationship,It\'s Complicated',
+            'looking_for' => 'required|string|in:Friendship,Relationship,Casual Date',
+            'preferred_gender' => 'nullable|string|in:Male,Female,Lesbian,Gay',
+            'preferred_age_min' => 'nullable|integer|min:18|max:100',
+            'preferred_age_max' => 'nullable|integer|min:18|max:100|gte:preferred_age_min',
+            'preferred_campuses' => 'nullable|array',
+            'preferred_campuses.*' => 'string|max:255',
+            'ideal_match_qualities' => 'nullable|array',
+            'ideal_match_qualities.*' => 'string|max:100',
+            'preferred_courses' => 'nullable|array',
+            'preferred_courses.*' => 'string|max:255',
         ]);
 
         $user = Auth::user();
@@ -111,7 +122,7 @@ class ProfileSetupController extends Controller
 
         \Log::info('Profile updated successfully', ['user_id' => $user->id]);
 
-        return redirect()->route('dashboard')->with('success', 'Profile completed successfully!');
+        return redirect()->route('browse')->with('success', 'Profile completed successfully!');
     }
 
     /**
@@ -132,8 +143,19 @@ class ProfileSetupController extends Controller
             'academic_goals' => 'nullable|string',
             'bio' => 'sometimes|string|max:500',
             'date_of_birth' => 'sometimes|date|before:today',
-            'gender' => 'sometimes|string|max:255',
+            'gender' => 'sometimes|string|in:Male,Female,Lesbian,Gay',
             'interests' => 'nullable|string',
+            'relationship_status' => 'sometimes|string|in:Single,In a Relationship,It\'s Complicated',
+            'looking_for' => 'sometimes|string|in:Friendship,Relationship,Casual Date',
+            'preferred_gender' => 'nullable|string|in:Male,Female,Lesbian,Gay',
+            'preferred_age_min' => 'nullable|integer|min:18|max:100',
+            'preferred_age_max' => 'nullable|integer|min:18|max:100|gte:preferred_age_min',
+            'preferred_campuses' => 'nullable|array',
+            'preferred_campuses.*' => 'string|max:255',
+            'ideal_match_qualities' => 'nullable|array',
+            'ideal_match_qualities.*' => 'string|max:100',
+            'preferred_courses' => 'nullable|array',
+            'preferred_courses.*' => 'string|max:255',
         ]);
 
         $user = Auth::user();

@@ -214,7 +214,8 @@ onMounted(() => fetchAnnouncements(1));
             </div>
         </Teleport>
 
-        <BottomNav active-tab="announcements" />
+        <!-- No tab highlighted here; dating MVP nav is Browse / Discover / Chat / Account -->
+        <BottomNav />
     </div>
 </template>
 

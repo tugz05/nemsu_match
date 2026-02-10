@@ -4,6 +4,7 @@ import { X, Image as ImageIcon, Camera } from 'lucide-vue-next';
 
 const props = defineProps<{
     open: boolean;
+    creating?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -125,10 +126,10 @@ onUnmounted(closeCamera);
 <template>
     <div
         v-if="open"
-        class="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4"
+        class="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center px-3 pb-24 pt-6 sm:p-4 sm:pb-4"
         @click.self="handleClose"
     >
-        <div class="bg-white w-full sm:max-w-lg sm:rounded-3xl rounded-t-3xl shadow-2xl animate-slide-up max-h-[90vh] flex flex-col mb-20 sm:mb-0">
+        <div class="bg-white w-full sm:max-w-lg rounded-3xl shadow-2xl animate-slide-up max-h-[90vh] flex flex-col">
             <div class="flex items-center justify-between p-4 border-b border-gray-200">
                 <h3 class="text-lg font-bold text-gray-900">Create Post</h3>
                 <button type="button" @click="handleClose" class="p-2 hover:bg-gray-100 rounded-full transition-colors">
@@ -210,10 +211,14 @@ onUnmounted(closeCamera);
                 <button
                     type="button"
                     @click="handleCreate"
-                    :disabled="!content.trim()"
-                    class="w-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-700 hover:to-cyan-600 text-white font-semibold py-3 rounded-full shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    :disabled="!content.trim() || creating"
+                    class="w-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-700 hover:to-cyan-600 text-white font-semibold py-3 rounded-full shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                    Post
+                    <span v-if="creating" class="inline-flex items-center gap-2">
+                        <span class="inline-block w-4 h-4 border-2 border-white/80 border-t-transparent rounded-full animate-spin" />
+                        <span>Posting…</span>
+                    </span>
+                    <span v-else>Post</span>
                 </button>
             </div>
         </div>

@@ -14,6 +14,10 @@ import {
     Camera,
     Sparkles,
     CheckCircle,
+    SlidersHorizontal,
+    Users,
+    MapPin,
+    CalendarDays,
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -24,7 +28,7 @@ const props = defineProps<{
 }>();
 
 const currentStep = ref(1);
-const totalSteps = 4;
+const totalSteps = 9;
 
 // Profile picture preview
 const profilePreview = ref<string | null>(null);
@@ -45,6 +49,14 @@ const form = useForm({
     date_of_birth: '',
     gender: '',
     interests: [] as string[],
+    relationship_status: '',
+    looking_for: '',
+    preferred_gender: '',
+    preferred_age_min: null as number | null,
+    preferred_age_max: null as number | null,
+    preferred_campuses: [] as string[],
+    ideal_match_qualities: [] as string[],
+    preferred_courses: [] as string[],
 });
 
 const campusList = [
@@ -60,17 +72,38 @@ const campusList = [
 
 const yearLevels = ['1st Year', '2nd Year', '3rd Year', '4th Year', 'Graduate'];
 
-const genderOptions = [
-    'Male',
-    'Female',
-    'Non-binary',
-    'Transgender',
-    'Genderqueer',
-    'Genderfluid',
-    'Agender',
-    'Two-Spirit',
-    'Prefer not to say',
-    'Prefer to self-describe',
+const genderOptions = ['Male', 'Female', 'Lesbian', 'Gay'];
+
+const relationshipStatusOptions = ['Single', 'In a Relationship', "It's Complicated"];
+
+const lookingForOptions = ['Friendship', 'Relationship', 'Casual Date'];
+
+/** Card options for Looking For (single-select). */
+const lookingForCards = [
+    { value: 'Friendship', label: 'Friendship', description: 'Connect with new friends and expand your circle.', icon: Users },
+    { value: 'Relationship', label: 'Relationship', description: 'Find a meaningful, long-term connection.', icon: Heart },
+    { value: 'Casual Date', label: 'Casual Date', description: 'Keep it light—coffee, hangouts, and good vibes.', icon: CalendarDays },
+];
+
+/** Gender(s) to see in Discover – "No preference" means no filter. Card options (single-select). */
+const preferredGenderOptions = [
+    { value: '', label: 'No preference', description: 'Show me everyone in Discover.', icon: Users },
+    { value: 'Male', label: 'Male', description: 'Only show male users in Discover.', icon: User },
+    { value: 'Female', label: 'Female', description: 'Only show female users in Discover.', icon: User },
+    { value: 'Lesbian', label: 'Lesbian', description: 'Only show lesbian users in Discover.', icon: User },
+    { value: 'Gay', label: 'Gay', description: 'Only show gay users in Discover.', icon: User },
+];
+
+/** Campus options for Preferred Campuses (multi-select) with short descriptions. */
+const campusCards = [
+    { value: 'Tandag', description: 'NEMSU Tandag Campus' },
+    { value: 'Bislig', description: 'NEMSU Bislig Campus' },
+    { value: 'Tagbina', description: 'NEMSU Tagbina Campus' },
+    { value: 'Lianga', description: 'NEMSU Lianga Campus' },
+    { value: 'Cagwait', description: 'NEMSU Cagwait Campus' },
+    { value: 'San Miguel', description: 'NEMSU San Miguel Campus' },
+    { value: 'Marihatag Offsite', description: 'NEMSU Marihatag Offsite' },
+    { value: 'Cantilan', description: 'NEMSU Cantilan Campus' },
 ];
 
 // Academic program autocomplete
@@ -105,6 +138,15 @@ const selectProgram = (program: string) => {
     showProgramSuggestions.value = false;
 };
 
+function togglePreferredCampus(campus: string) {
+    const idx = form.preferred_campuses.indexOf(campus);
+    if (idx === -1) {
+        form.preferred_campuses = [...form.preferred_campuses, campus];
+    } else {
+        form.preferred_campuses = form.preferred_campuses.filter((c) => c !== campus);
+    }
+}
+
 const progressPercentage = computed(() => {
     return (currentStep.value / totalSteps) * 100;
 });
@@ -118,6 +160,14 @@ const stepComplete = computed(() => {
         return true; // Optional fields
     } else if (currentStep.value === 4) {
         return !!(form.bio && form.bio.length >= 10);
+    } else if (currentStep.value === 5) {
+        return !!form.relationship_status;
+    } else if (currentStep.value === 6) {
+        return !!form.looking_for;
+    } else if (currentStep.value === 7 || currentStep.value === 8) {
+        return true; // Preferred gender and campuses are optional
+    } else if (currentStep.value === 9) {
+        return true; // Age and ideal match optional
     }
     return false;
 });
@@ -156,10 +206,14 @@ const triggerFileInput = () => {
 };
 
 const submitProfile = () => {
-    form.post('/profile/setup', {
+    form.transform((data) => ({
+        ...data,
+        preferred_age_min: data.preferred_age_min != null && Number(data.preferred_age_min) >= 18 ? Number(data.preferred_age_min) : null,
+        preferred_age_max: data.preferred_age_max != null && Number(data.preferred_age_max) >= 18 ? Number(data.preferred_age_max) : null,
+    })).post('/profile/setup', {
         onSuccess: () => {
             console.log('Profile saved successfully!');
-            router.visit('/dashboard');
+            router.visit('/browse');
         },
         onError: (errors) => {
             console.error('Validation errors:', errors);
@@ -306,14 +360,14 @@ const formatDateForDisplay = (date: string) => {
                     <div class="space-y-2 transform transition-all hover:scale-[1.01]">
                         <label for="gender" class="text-sm font-semibold text-gray-700 flex items-center gap-2">
                             <span class="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
-                            Gender Identity *
+                            Gender *
                         </label>
                         <select
                             id="gender"
                             v-model="form.gender"
                             class="flex h-12 w-full rounded-xl border-2 border-input bg-white px-4 py-2 text-base shadow-sm transition-all focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                         >
-                            <option value="">Select your gender identity</option>
+                            <option value="">Select your gender</option>
                             <option
                                 v-for="gender in genderOptions"
                                 :key="gender"
@@ -598,6 +652,230 @@ const formatDateForDisplay = (date: string) => {
                                 <CheckCircle v-if="form.bio.length >= 10" class="w-3 h-3 inline ml-1" />
                             </p>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 5: Relationship Status only -->
+            <div v-show="currentStep === 5" class="space-y-6 animate-slide-in">
+                <div class="text-center space-y-3">
+                    <div
+                        class="w-20 h-20 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg animate-bounce-slow"
+                    >
+                        <SlidersHorizontal class="w-10 h-10 text-blue-600" />
+                    </div>
+                    <h2 class="text-2xl md:text-3xl font-bold text-gray-900">
+                        Relationship Status
+                    </h2>
+                    <p class="text-sm text-gray-600">
+                        What's your current relationship status?
+                    </p>
+                </div>
+                <div class="space-y-2">
+                    <label for="relationship_status" class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                        <span class="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+                        Select your status *
+                    </label>
+                    <select
+                        id="relationship_status"
+                        v-model="form.relationship_status"
+                        class="flex h-12 w-full rounded-xl border-2 border-input bg-white px-4 py-2 text-base shadow-sm transition-all focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        :class="{ 'border-red-500': form.errors.relationship_status }"
+                    >
+                        <option value="">Select your status</option>
+                        <option
+                            v-for="opt in relationshipStatusOptions"
+                            :key="opt"
+                            :value="opt"
+                        >
+                            {{ opt }}
+                        </option>
+                    </select>
+                    <p v-if="form.errors.relationship_status" class="text-xs text-red-600">{{ form.errors.relationship_status }}</p>
+                </div>
+            </div>
+
+            <!-- Step 6: Looking For only (single-select cards) -->
+            <div v-show="currentStep === 6" class="space-y-6 animate-slide-in">
+                <div class="text-center space-y-3">
+                    <div
+                        class="w-20 h-20 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg animate-bounce-slow"
+                    >
+                        <Heart class="w-10 h-10 text-blue-600" />
+                    </div>
+                    <h2 class="text-2xl md:text-3xl font-bold text-gray-900">
+                        What are you looking for?
+                    </h2>
+                    <p class="text-sm text-gray-600">
+                        Choose one—we'll use this to find better matches
+                    </p>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <button
+                        v-for="opt in lookingForCards"
+                        :key="opt.value"
+                        type="button"
+                        @click="form.looking_for = opt.value"
+                        class="relative flex flex-col items-start p-4 rounded-xl border-2 text-left bg-white transition-all hover:bg-blue-50/50 cursor-pointer"
+                        :class="form.looking_for === opt.value ? 'border-blue-500 ring-2 ring-blue-200 shadow-md' : 'border-gray-200 hover:border-gray-300'"
+                    >
+                        <component
+                            :is="opt.icon"
+                            class="w-5 h-5 mb-2 text-gray-600"
+                            :class="form.looking_for === opt.value ? 'text-blue-600' : ''"
+                        />
+                        <span class="font-semibold text-gray-900">{{ opt.label }}</span>
+                        <span class="text-xs text-gray-500 mt-0.5">{{ opt.description }}</span>
+                        <CheckCircle
+                            v-if="form.looking_for === opt.value"
+                            class="absolute top-3 right-3 w-5 h-5 text-blue-600"
+                        />
+                    </button>
+                </div>
+                <p v-if="form.errors.looking_for" class="text-xs text-red-600">{{ form.errors.looking_for }}</p>
+            </div>
+
+            <!-- Step 7: Interested in (gender) only (single-select cards) -->
+            <div v-show="currentStep === 7" class="space-y-6 animate-slide-in">
+                <div class="text-center space-y-3">
+                    <div
+                        class="w-20 h-20 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg animate-bounce-slow"
+                    >
+                        <Users class="w-10 h-10 text-blue-600" />
+                    </div>
+                    <h2 class="text-2xl md:text-3xl font-bold text-gray-900">
+                        Interested in (gender)
+                    </h2>
+                    <p class="text-sm text-gray-600">
+                        Who do you want to see in Discover? Optional—"No preference" shows everyone
+                    </p>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <button
+                        v-for="opt in preferredGenderOptions"
+                        :key="opt.value || 'any'"
+                        type="button"
+                        @click="form.preferred_gender = opt.value"
+                        class="relative flex flex-col items-start p-4 rounded-xl border-2 text-left bg-white transition-all hover:bg-blue-50/50 cursor-pointer"
+                        :class="form.preferred_gender === opt.value ? 'border-blue-500 ring-2 ring-blue-200 shadow-md' : 'border-gray-200 hover:border-gray-300'"
+                    >
+                        <component
+                            :is="opt.icon"
+                            class="w-5 h-5 mb-2 text-gray-600"
+                            :class="form.preferred_gender === opt.value ? 'text-blue-600' : ''"
+                        />
+                        <span class="font-semibold text-gray-900">{{ opt.label }}</span>
+                        <span class="text-xs text-gray-500 mt-0.5">{{ opt.description }}</span>
+                        <CheckCircle
+                            v-if="form.preferred_gender === opt.value"
+                            class="absolute top-3 right-3 w-5 h-5 text-blue-600"
+                        />
+                    </button>
+                </div>
+                <p v-if="form.errors.preferred_gender" class="text-xs text-red-600">{{ form.errors.preferred_gender }}</p>
+            </div>
+
+            <!-- Step 8: Preferred Location (Campuses) only (multi-select cards) -->
+            <div v-show="currentStep === 8" class="space-y-6 animate-slide-in">
+                <div class="text-center space-y-3">
+                    <div
+                        class="w-20 h-20 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg animate-bounce-slow"
+                    >
+                        <MapPin class="w-10 h-10 text-blue-600" />
+                    </div>
+                    <h2 class="text-2xl md:text-3xl font-bold text-gray-900">
+                        Preferred Location (Campuses)
+                    </h2>
+                    <p class="text-sm text-gray-600">
+                        Select one or more campuses—optional. We'll prioritize matches from these locations
+                    </p>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <button
+                        v-for="campus in campusCards"
+                        :key="campus.value"
+                        type="button"
+                        @click="togglePreferredCampus(campus.value)"
+                        class="relative flex flex-col items-start p-4 rounded-xl border-2 text-left bg-white transition-all hover:bg-blue-50/50 cursor-pointer"
+                        :class="form.preferred_campuses.includes(campus.value) ? 'border-blue-500 ring-2 ring-blue-200 shadow-md' : 'border-gray-200 hover:border-gray-300'"
+                    >
+                        <MapPin
+                            class="w-5 h-5 mb-2 text-gray-600"
+                            :class="form.preferred_campuses.includes(campus.value) ? 'text-blue-600' : ''"
+                        />
+                        <span class="font-semibold text-gray-900">{{ campus.value }}</span>
+                        <span class="text-xs text-gray-500 mt-0.5">{{ campus.description }}</span>
+                        <CheckCircle
+                            v-if="form.preferred_campuses.includes(campus.value)"
+                            class="absolute top-3 right-3 w-5 h-5 text-blue-600"
+                        />
+                    </button>
+                </div>
+            </div>
+
+            <!-- Step 9: Age Range + Ideal Match (optional) -->
+            <div v-show="currentStep === 9" class="space-y-6 animate-slide-in">
+                <div class="text-center space-y-3">
+                    <div
+                        class="w-20 h-20 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg animate-bounce-slow"
+                    >
+                        <Sparkles class="w-10 h-10 text-blue-600" />
+                    </div>
+                    <h2 class="text-2xl md:text-3xl font-bold text-gray-900">
+                        Almost there!
+                    </h2>
+                    <p class="text-sm text-gray-600">
+                        Optional: preferred age, courses, and qualities you look for in a match
+                    </p>
+                </div>
+                <div class="space-y-5">
+                    <div class="space-y-2 transform transition-all hover:scale-[1.01]">
+                        <label class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                            <span class="w-1.5 h-1.5 rounded-full bg-cyan-500"></span>
+                            Preferred Courses (in a match) <span class="text-xs text-gray-500 font-normal">(optional)</span>
+                        </label>
+                        <TagsInput
+                            v-model="form.preferred_courses"
+                            placeholder="e.g. BS Civil Engineering, BS Computer Science (press Enter or comma to add)"
+                            autocomplete-url="/api/autocomplete/courses"
+                            :max-tags="10"
+                        />
+                    </div>
+                    <div class="space-y-2 transform transition-all hover:scale-[1.01]">
+                        <label class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                            <span class="w-1.5 h-1.5 rounded-full bg-cyan-500"></span>
+                            Preferred Age Range <span class="text-xs text-gray-500 font-normal">(optional)</span>
+                        </label>
+                        <div class="flex items-center gap-3">
+                            <Input
+                                v-model.number="form.preferred_age_min"
+                                type="number"
+                                min="18"
+                                max="100"
+                                placeholder="Min"
+                                class="rounded-xl border-2 focus:border-blue-500 h-12 flex-1"
+                            />
+                            <span class="text-gray-500">to</span>
+                            <Input
+                                v-model.number="form.preferred_age_max"
+                                type="number"
+                                min="18"
+                                max="100"
+                                placeholder="Max"
+                                class="rounded-xl border-2 focus:border-blue-500 h-12 flex-1"
+                            />
+                        </div>
+                    </div>
+                    <div class="space-y-2 transform transition-all hover:scale-[1.01]">
+                        <label class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                            <span class="w-1.5 h-1.5 rounded-full bg-cyan-500"></span>
+                            Ideal Match <span class="text-xs text-gray-500 font-normal">(e.g. funny, ambitious, adventurous)</span>
+                        </label>
+                        <TagsInput
+                            v-model="form.ideal_match_qualities"
+                            placeholder="e.g. funny, ambitious, adventurous (press Enter or comma to add)"
+                            :max-tags="12"
+                        />
                     </div>
                 </div>
             </div>

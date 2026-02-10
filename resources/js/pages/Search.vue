@@ -96,7 +96,8 @@ function goToProfile(user: SearchUser) {
 }
 
 function goBack() {
-    router.visit('/home');
+    // From manual search, go back to Browse list.
+    router.visit('/browse');
 }
 </script>
 
@@ -182,6 +183,6 @@ function goBack() {
             </ul>
         </div>
 
-        <BottomNav />
+        <BottomNav active-tab="home" />
     </div>
 </template>

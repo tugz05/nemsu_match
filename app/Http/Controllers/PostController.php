@@ -61,7 +61,9 @@ class PostController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'content' => 'required|string|max:1000',
+            // Allow extra room server-side so 1000 visible chars (with newlines)
+            // never trip validation due to CRLF/encoding differences.
+            'content' => 'required|string|max:1500',
             'image' => 'nullable|image|max:5120',
             'images' => 'nullable|array',
             'images.*' => 'image|max:5120',
@@ -253,7 +255,7 @@ class PostController extends Controller
         }
 
         $validated = $request->validate([
-            'content' => 'required|string|max:1000',
+            'content' => 'required|string|max:1500',
         ]);
 
         $post->update(['content' => $validated['content']]);

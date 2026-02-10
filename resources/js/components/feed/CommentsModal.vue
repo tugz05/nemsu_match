@@ -40,10 +40,10 @@ function handleAddComment() {
 <template>
     <div
         v-if="open && post"
-        class="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4"
+        class="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center px-3 pb-24 pt-6 sm:p-4 sm:pb-4"
         @click.self="emit('close')"
     >
-        <div class="bg-white w-full sm:max-w-lg sm:rounded-3xl rounded-t-3xl shadow-2xl animate-slide-up max-h-[85vh] flex flex-col mb-20 sm:mb-0">
+        <div class="bg-white w-full max-w-xl sm:max-w-lg rounded-3xl shadow-2xl animate-slide-up max-h-[80vh] flex flex-col">
             <div class="flex items-center justify-between p-4 border-b border-gray-200 flex-shrink-0">
                 <h3 class="text-lg font-bold text-gray-900">Comments</h3>
                 <button type="button" @click="emit('close')" class="p-2 hover:bg-gray-100 rounded-full transition-colors">

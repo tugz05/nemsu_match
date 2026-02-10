@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { Heart, MessageCircle, Repeat2, Send, MoreHorizontal, Pencil, Trash2, Flag } from 'lucide-vue-next';
 import { profilePictureSrc } from '@/composables/useProfilePictureSrc';
 import type { Post } from '@/types';
@@ -10,6 +10,8 @@ const props = defineProps<{
     isPostOwner: boolean;
     followLoading: boolean;
     menuOpen: boolean;
+    /** When true, long captions are truncated with a “See more” toggle. */
+    enableSeeMore?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -35,6 +37,21 @@ function getPostImages(post: Post): string[] {
 }
 
 const images = computed(() => getPostImages(props.post));
+
+const MAX_CAPTION_CHARS = 220;
+const showFullCaption = ref(false);
+
+const isLongCaption = computed(
+    () => (props.post.content?.length || 0) > MAX_CAPTION_CHARS,
+);
+
+const previewCaption = computed(() => {
+    const text = props.post.content || '';
+    if (!props.enableSeeMore || !isLongCaption.value || showFullCaption.value) {
+        return text;
+    }
+    return `${text.slice(0, MAX_CAPTION_CHARS).trimEnd()}…`;
+});
 </script>
 
 <template>
@@ -129,7 +146,25 @@ const images = computed(() => getPostImages(props.post));
                     @click="emit('viewPost')"
                     @keydown.enter.space.prevent="emit('viewPost')"
                 >
-                    <p class="text-gray-900 text-sm leading-relaxed mb-3 whitespace-pre-wrap">{{ post.content }}</p>
+                    <p class="text-gray-900 text-sm leading-relaxed mb-3 whitespace-pre-wrap">
+                        {{ previewCaption }}
+                        <button
+                            v-if="enableSeeMore && isLongCaption && !showFullCaption"
+                            type="button"
+                            class="ml-1 text-blue-600 text-xs font-semibold underline"
+                            @click.stop="showFullCaption = true"
+                        >
+                            See more
+                        </button>
+                        <button
+                            v-else-if="enableSeeMore && isLongCaption && showFullCaption"
+                            type="button"
+                            class="ml-1 text-blue-600 text-xs font-semibold underline"
+                            @click.stop="showFullCaption = false"
+                        >
+                            See less
+                        </button>
+                    </p>
                     <div v-if="images.length" class="mb-3 rounded-2xl overflow-hidden">
                         <div :class="images.length > 1 ? 'flex flex-row overflow-x-auto gap-2 snap-x snap-mandatory' : ''">
                             <img

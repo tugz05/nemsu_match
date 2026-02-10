@@ -16,7 +16,9 @@ class NotificationController extends Controller
     {
         $perPage = min((int) $request->input('per_page', 25), 50);
 
+        // Exclude plain \"message\" notifications from the feed (chat has its own unread badge)
         $notifications = Notification::where('user_id', Auth::id())
+            ->where('type', '!=', 'message')
             ->with('fromUser:id,display_name,fullname,profile_picture')
             ->latest()
             ->paginate($perPage);
@@ -29,7 +31,11 @@ class NotificationController extends Controller
      */
     public function unreadCount()
     {
-        $count = Notification::where('user_id', Auth::id())->unread()->count();
+        // Exclude plain \"message\" notifications from unread count
+        $count = Notification::where('user_id', Auth::id())
+            ->where('type', '!=', 'message')
+            ->unread()
+            ->count();
 
         return response()->json(['count' => $count]);
     }

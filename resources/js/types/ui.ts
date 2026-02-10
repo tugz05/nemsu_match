@@ -1,4 +1,5 @@
-export type Appearance = 'light' | 'dark' | 'system';
-export type ResolvedAppearance = 'light' | 'dark';
+/** Only light theme is used; dark and system are excluded. */
+export type Appearance = 'light';
+export type ResolvedAppearance = 'light';
 
 export type AppShellVariant = 'header' | 'sidebar';

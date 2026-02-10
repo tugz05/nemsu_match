@@ -53,6 +53,9 @@ class AccountController extends Controller
         $extracurricularActivities = $decode($row->extracurricular_activities ?? null);
         $academicGoals = $decode($row->academic_goals ?? null);
         $interests = $decode($row->interests ?? null);
+        $preferredCampuses = $decode($row->preferred_campuses ?? null);
+        $idealMatchQualities = $decode($row->ideal_match_qualities ?? null);
+        $preferredCourses = $decode($row->preferred_courses ?? null);
 
         $followingCount = $user->following()->count();
         $followersCount = $user->followers()->count();
@@ -77,6 +80,14 @@ class AccountController extends Controller
                 'extracurricular_activities' => $extracurricularActivities,
                 'academic_goals' => $academicGoals,
                 'interests' => $interests,
+                'relationship_status' => $user->relationship_status,
+                'looking_for' => $user->looking_for,
+                'preferred_gender' => $user->preferred_gender,
+                'preferred_age_min' => $user->preferred_age_min,
+                'preferred_age_max' => $user->preferred_age_max,
+                'preferred_campuses' => $preferredCampuses,
+                'ideal_match_qualities' => $idealMatchQualities,
+                'preferred_courses' => $preferredCourses,
                 'following_count' => $followingCount,
                 'followers_count' => $followersCount,
                 'posts_count' => $postsCount,
@@ -99,7 +110,7 @@ class AccountController extends Controller
             'academic_program' => 'sometimes|string|max:255',
             'year_level' => 'sometimes|string|max:255',
             'bio' => 'sometimes|string|max:500',
-            'gender' => 'sometimes|string|max:255',
+            'gender' => 'sometimes|string|in:Male,Female,Lesbian,Gay',
             'profile_picture' => 'nullable|image|max:5120', // 5MB max
             'courses' => 'sometimes|array',
             'courses.*' => 'string|max:255',
@@ -111,10 +122,21 @@ class AccountController extends Controller
             'academic_goals.*' => 'string|max:255',
             'interests' => 'sometimes|array',
             'interests.*' => 'string|max:255',
+            'relationship_status' => 'sometimes|string|in:Single,In a Relationship,It\'s Complicated',
+            'looking_for' => 'sometimes|string|in:Friendship,Relationship,Casual Date',
+            'preferred_gender' => 'nullable|string|in:Male,Female,Lesbian,Gay',
+            'preferred_age_min' => 'nullable|integer|min:18|max:100',
+            'preferred_age_max' => 'nullable|integer|min:18|max:100|gte:preferred_age_min',
+            'preferred_campuses' => 'sometimes|array',
+            'preferred_campuses.*' => 'string|max:255',
+            'ideal_match_qualities' => 'sometimes|array',
+            'ideal_match_qualities.*' => 'string|max:100',
+            'preferred_courses' => 'sometimes|array',
+            'preferred_courses.*' => 'string|max:255',
         ]);
 
         // Normalize array fields (trim, filter empty)
-        $arrayFields = ['courses', 'research_interests', 'extracurricular_activities', 'academic_goals', 'interests'];
+        $arrayFields = ['courses', 'research_interests', 'extracurricular_activities', 'academic_goals', 'interests', 'preferred_campuses', 'ideal_match_qualities', 'preferred_courses'];
         foreach ($arrayFields as $field) {
             if (isset($validated[$field]) && is_array($validated[$field])) {
                 $validated[$field] = array_values(array_filter(array_map('trim', $validated[$field])));

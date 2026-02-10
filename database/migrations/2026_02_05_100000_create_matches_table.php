@@ -1,0 +1,28 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('matches', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('user_id')->constrained()->onDelete('cascade');
+            $table->foreignId('matched_user_id')->constrained('users')->onDelete('cascade');
+            $table->string('intent', 20)->nullable(); // dating, friend, study_buddy (how they matched)
+            $table->timestamps();
+
+            $table->unique(['user_id', 'matched_user_id']);
+            $table->index('user_id');
+            $table->index('matched_user_id');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('matches');
+    }
+};

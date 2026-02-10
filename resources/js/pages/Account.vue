@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { Head, router, useForm } from '@inertiajs/vue3';
-import { User, Mail, MapPin, GraduationCap, Calendar, Heart, Book, Target, Trophy, Camera, Edit2, LogOut, ChevronRight, ChevronLeft, Settings, Plus } from 'lucide-vue-next';
+import { User, Mail, MapPin, GraduationCap, Calendar, Heart, Book, Target, Trophy, Camera, Edit2, LogOut, ChevronRight, ChevronLeft, Settings, Plus, Trash2 } from 'lucide-vue-next';
 import TagsInput from '@/components/ui/tags-input/TagsInput.vue';
 import { profilePictureSrc } from '@/composables/useProfilePictureSrc';
+import { useCsrfToken } from '@/composables/useCsrfToken';
 import { BottomNav } from '@/components/feed';
+
+type GalleryPhoto = { id: number; path: string; url: string; created_at: string };
 
 const props = defineProps<{
     user: {
@@ -24,6 +27,14 @@ const props = defineProps<{
         extracurricular_activities?: string[] | unknown;
         academic_goals?: string[] | unknown;
         interests?: string[] | unknown;
+        relationship_status?: string | null;
+        looking_for?: string | null;
+        preferred_gender?: string | null;
+        preferred_age_min?: number | null;
+        preferred_age_max?: number | null;
+        preferred_campuses?: string[] | unknown;
+        ideal_match_qualities?: string[] | unknown;
+        preferred_courses?: string[] | unknown;
         following_count?: number;
         followers_count?: number;
         posts_count?: number;
@@ -53,14 +64,102 @@ const researchInterests = computed(() => ensureStringArray(props.user.research_i
 const extracurricularActivities = computed(() => ensureStringArray(props.user.extracurricular_activities));
 const academicGoals = computed(() => ensureStringArray(props.user.academic_goals));
 const interests = computed(() => ensureStringArray(props.user.interests));
+const preferredCampuses = computed(() => ensureStringArray(props.user.preferred_campuses));
+const idealMatchQualities = computed(() => ensureStringArray(props.user.ideal_match_qualities));
+const preferredCourses = computed(() => ensureStringArray(props.user.preferred_courses));
+
+const campusList = ['Tandag', 'Bislig', 'Tagbina', 'Lianga', 'Cagwait', 'San Miguel', 'Marihatag Offsite', 'Cantilan'];
+const relationshipStatusOptions = ['Single', 'In a Relationship', "It's Complicated"];
+const lookingForOptions = ['Friendship', 'Relationship', 'Casual Date'];
+const genderOptions = ['Male', 'Female', 'Lesbian', 'Gay'];
+const preferredGenderOptions = [
+    { value: '', label: 'No preference' },
+    { value: 'Male', label: 'Male' },
+    { value: 'Female', label: 'Female' },
+    { value: 'Lesbian', label: 'Lesbian' },
+    { value: 'Gay', label: 'Gay' },
+];
 
 const isEditing = ref(false);
 const profilePreview = ref<string | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
-const activeTab = ref<'about' | 'posts' | 'achievements'>('about');
+const activeTab = ref<'gallery' | 'about'>('about');
 const showSettingsMenu = ref(false);
 
-// Form for editing (include array fields for interests, courses, etc.)
+// Gallery (Create / Delete, Instagram-style grid)
+const getCsrfToken = useCsrfToken();
+const galleryPhotos = ref<GalleryPhoto[]>([]);
+const galleryLoading = ref(false);
+const galleryUploading = ref(false);
+const galleryDeletingId = ref<number | null>(null);
+const galleryInputRef = ref<HTMLInputElement | null>(null);
+
+async function fetchGallery() {
+    galleryLoading.value = true;
+    try {
+        const res = await fetch('/api/gallery', {
+            credentials: 'same-origin',
+            headers: { 'X-CSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
+        });
+        if (res.ok) {
+            const data = await res.json();
+            galleryPhotos.value = data.data ?? [];
+        }
+    } finally {
+        galleryLoading.value = false;
+    }
+}
+
+function openGalleryUpload() {
+    galleryInputRef.value?.click();
+}
+
+async function onGalleryFileChange(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const files = input.files ? Array.from(input.files).filter((f) => f.type.startsWith('image/')) : [];
+    if (files.length === 0) return;
+    galleryUploading.value = true;
+    try {
+        const formData = new FormData();
+        files.forEach((file) => formData.append('photos[]', file));
+        const res = await fetch('/api/gallery', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'X-CSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
+            body: formData,
+        });
+        if (res.ok) {
+            const data = await res.json();
+            const created = Array.isArray(data.data) ? data.data : (data.data ? [data.data] : []);
+            if (created.length) galleryPhotos.value = [...created, ...galleryPhotos.value];
+        }
+    } finally {
+        galleryUploading.value = false;
+        input.value = '';
+    }
+}
+
+async function deleteGalleryPhoto(id: number) {
+    galleryDeletingId.value = id;
+    try {
+        const res = await fetch(`/api/gallery/${id}`, {
+            method: 'DELETE',
+            credentials: 'same-origin',
+            headers: { 'X-CSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
+        });
+        if (res.ok) {
+            galleryPhotos.value = galleryPhotos.value.filter((p) => p.id !== id);
+        }
+    } finally {
+        galleryDeletingId.value = null;
+    }
+}
+
+watch(activeTab, (tab) => {
+    if (tab === 'gallery') fetchGallery();
+});
+
+// Form for editing (include array fields for interests, courses, preferences, etc.)
 const form = useForm({
     display_name: props.user.display_name,
     fullname: props.user.fullname,
@@ -76,6 +175,14 @@ const form = useForm({
     extracurricular_activities: ensureStringArray(props.user.extracurricular_activities),
     academic_goals: ensureStringArray(props.user.academic_goals),
     interests: ensureStringArray(props.user.interests),
+    relationship_status: props.user.relationship_status ?? '',
+    looking_for: props.user.looking_for ?? '',
+    preferred_gender: props.user.preferred_gender ?? '',
+    preferred_age_min: props.user.preferred_age_min ?? null as number | null,
+    preferred_age_max: props.user.preferred_age_max ?? null as number | null,
+    preferred_campuses: ensureStringArray(props.user.preferred_campuses),
+    ideal_match_qualities: ensureStringArray(props.user.ideal_match_qualities),
+    preferred_courses: ensureStringArray(props.user.preferred_courses),
 });
 
 // Calculate age
@@ -118,13 +225,34 @@ const toggleEdit = () => {
         form.extracurricular_activities = [...extracurricularActivities.value];
         form.academic_goals = [...academicGoals.value];
         form.interests = [...interests.value];
+        form.relationship_status = props.user.relationship_status ?? '';
+        form.looking_for = props.user.looking_for ?? '';
+        form.preferred_gender = props.user.preferred_gender ?? '';
+        form.preferred_age_min = props.user.preferred_age_min ?? null;
+        form.preferred_age_max = props.user.preferred_age_max ?? null;
+        form.preferred_campuses = [...preferredCampuses.value];
+        form.ideal_match_qualities = [...idealMatchQualities.value];
+        form.preferred_courses = [...preferredCourses.value];
     }
     isEditing.value = !isEditing.value;
 };
 
-// Save changes
+function togglePreferredCampus(campus: string) {
+    const idx = form.preferred_campuses.indexOf(campus);
+    if (idx === -1) {
+        form.preferred_campuses = [...form.preferred_campuses, campus];
+    } else {
+        form.preferred_campuses = form.preferred_campuses.filter((c) => c !== campus);
+    }
+}
+
+// Save changes (normalize optional numbers for backend)
 const saveChanges = () => {
-    form.post('/api/account/update', {
+    form.transform((data) => ({
+        ...data,
+        preferred_age_min: data.preferred_age_min != null && data.preferred_age_min !== '' ? Number(data.preferred_age_min) : null,
+        preferred_age_max: data.preferred_age_max != null && data.preferred_age_max !== '' ? Number(data.preferred_age_max) : null,
+    })).post('/api/account/update', {
         preserveScroll: true,
         onSuccess: () => {
             isEditing.value = false;
@@ -138,9 +266,9 @@ const logout = () => {
     router.post('/nemsu/logout');
 };
 
-const navigateToHome = () => router.visit('/home');
-const navigateToDiscover = () => router.visit('/dashboard');
-const goBack = () => router.visit('/home');
+const navigateToHome = () => router.visit('/browse');
+const navigateToDiscover = () => router.visit('/like-you');
+const goBack = () => router.visit('/browse');
 
 function onDocumentClick(e: MouseEvent) {
     const target = e.target as HTMLElement;
@@ -226,23 +354,7 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick));
                 </div>
             </div>
 
-            <!-- Stats row: Following | Followers | Posts -->
-            <div class="grid grid-cols-3 gap-4 py-4 border-y border-gray-200 mb-4">
-                <div class="text-center">
-                    <p class="text-lg font-bold text-gray-900">{{ user.following_count ?? 0 }}</p>
-                    <p class="text-xs text-gray-500">Following</p>
-                </div>
-                <div class="text-center">
-                    <p class="text-lg font-bold text-gray-900">{{ user.followers_count ?? 0 }}</p>
-                    <p class="text-xs text-gray-500">Followers</p>
-                </div>
-                <div class="text-center">
-                    <p class="text-lg font-bold text-gray-900">{{ user.posts_count ?? 0 }}</p>
-                    <p class="text-xs text-gray-500">Posts</p>
-                </div>
-            </div>
-
-            <!-- Tabs -->
+            <!-- Tabs: About | Gallery -->
             <div class="flex border-b border-gray-200 mb-4">
                 <button
                     @click="activeTab = 'about'"
@@ -252,18 +364,11 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick));
                     About
                 </button>
                 <button
-                    @click="activeTab = 'posts'"
+                    @click="activeTab = 'gallery'"
                     class="flex-1 py-3 text-sm font-semibold transition-colors"
-                    :class="activeTab === 'posts' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'"
+                    :class="activeTab === 'gallery' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'"
                 >
-                    Posts
-                </button>
-                <button
-                    @click="activeTab = 'achievements'"
-                    class="flex-1 py-3 text-sm font-semibold transition-colors"
-                    :class="activeTab === 'achievements' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'"
-                >
-                    Achievements
+                    Gallery
                 </button>
             </div>
 
@@ -345,10 +450,7 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick));
                             v-model="form.gender"
                             class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 outline-none transition-colors"
                         >
-                            <option value="Male">Male</option>
-                            <option value="Female">Female</option>
-                            <option value="Non-binary">Non-binary</option>
-                            <option value="Prefer not to say">Prefer not to say</option>
+                            <option v-for="g in genderOptions" :key="g" :value="g">{{ g }}</option>
                         </select>
                     </div>
 
@@ -563,50 +665,210 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick));
                     </div>
                 </div>
                 </div>
+
+                <!-- Match preferences -->
+                <div class="bg-white rounded-3xl shadow-lg p-6">
+                    <h3 class="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                        <Heart class="w-5 h-5 text-blue-600" />
+                        Match Preferences
+                    </h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">Relationship Status</label>
+                            <p v-if="!isEditing" class="text-gray-900">{{ user.relationship_status || '—' }}</p>
+                            <select
+                                v-else
+                                v-model="form.relationship_status"
+                                class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 outline-none"
+                            >
+                                <option value="">Select</option>
+                                <option v-for="opt in relationshipStatusOptions" :key="opt" :value="opt">{{ opt }}</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">Looking For</label>
+                            <p v-if="!isEditing" class="text-gray-900">{{ user.looking_for || '—' }}</p>
+                            <select
+                                v-else
+                                v-model="form.looking_for"
+                                class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 outline-none"
+                            >
+                                <option value="">Select</option>
+                                <option v-for="opt in lookingForOptions" :key="opt" :value="opt">{{ opt }}</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">Interested in (gender)</label>
+                            <p v-if="!isEditing" class="text-gray-900">{{ user.preferred_gender ? preferredGenderOptions.find(o => o.value === user.preferred_gender)?.label : 'No preference' }}</p>
+                            <select
+                                v-else
+                                v-model="form.preferred_gender"
+                                class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 outline-none"
+                            >
+                                <option v-for="opt in preferredGenderOptions" :key="opt.value || 'any'" :value="opt.value">{{ opt.label }}</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">Preferred Age Range</label>
+                            <p v-if="!isEditing" class="text-gray-900">
+                                {{ (user.preferred_age_min != null || user.preferred_age_max != null) ? `${user.preferred_age_min ?? '—'} to ${user.preferred_age_max ?? '—'}` : '—' }}
+                            </p>
+                            <div v-else class="flex items-center gap-2">
+                                <input
+                                    v-model.number="form.preferred_age_min"
+                                    type="number"
+                                    min="18"
+                                    max="100"
+                                    placeholder="Min"
+                                    class="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 outline-none"
+                                />
+                                <span class="text-gray-500">to</span>
+                                <input
+                                    v-model.number="form.preferred_age_max"
+                                    type="number"
+                                    min="18"
+                                    max="100"
+                                    placeholder="Max"
+                                    class="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 outline-none"
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">Preferred Courses (in a match)</label>
+                            <template v-if="!isEditing">
+                                <div v-if="preferredCourses.length" class="flex flex-wrap gap-2">
+                                    <span v-for="(course, i) in preferredCourses" :key="i" class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-sm">{{ course }}</span>
+                                </div>
+                                <p v-else class="text-sm text-gray-500">None added</p>
+                            </template>
+                            <TagsInput
+                                v-else
+                                v-model="form.preferred_courses"
+                                placeholder="e.g. Data Structures, Web Development..."
+                                autocomplete-url="/api/autocomplete/courses"
+                                :max-tags="10"
+                                class="mt-1"
+                            />
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">Preferred Campuses</label>
+                            <template v-if="!isEditing">
+                                <div v-if="preferredCampuses.length" class="flex flex-wrap gap-2">
+                                    <span v-for="(c, i) in preferredCampuses" :key="i" class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-sm">{{ c }}</span>
+                                </div>
+                                <p v-else class="text-sm text-gray-500">None selected</p>
+                            </template>
+                            <div v-else class="flex flex-wrap gap-2">
+                                <label
+                                    v-for="c in campusList"
+                                    :key="c"
+                                    class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer text-sm"
+                                    :class="form.preferred_campuses.includes(c) ? 'border-blue-500 bg-blue-50' : 'border-gray-200'"
+                                >
+                                    <input type="checkbox" :value="c" :checked="form.preferred_campuses.includes(c)" @change="togglePreferredCampus(c)" class="rounded" />
+                                    {{ c }}
+                                </label>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">Ideal Match (qualities)</label>
+                            <template v-if="!isEditing">
+                                <div v-if="idealMatchQualities.length" class="flex flex-wrap gap-2">
+                                    <span v-for="(q, i) in idealMatchQualities" :key="i" class="px-3 py-1.5 bg-cyan-100 text-cyan-700 rounded-full text-sm">{{ q }}</span>
+                                </div>
+                                <p v-else class="text-sm text-gray-500">None added</p>
+                            </template>
+                            <TagsInput
+                                v-else
+                                v-model="form.ideal_match_qualities"
+                                placeholder="e.g. funny, ambitious..."
+                                :max-tags="12"
+                                class="mt-1"
+                            />
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            <!-- Tab content: Posts -->
-            <div v-show="activeTab === 'posts'" class="bg-white rounded-2xl shadow-lg p-8 text-center">
-                <p class="text-gray-500 mb-4">Your posts appear on the home feed.</p>
-                <button
-                    @click="navigateToHome"
-                    class="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-cyan-500 text-white rounded-full font-semibold text-sm"
-                >
-                    View feed
-                </button>
-            </div>
+            <!-- Tab content: Gallery (Instagram-style grid, Create + Delete) -->
+            <div v-show="activeTab === 'gallery'" class="bg-white rounded-2xl shadow-lg p-4 sm:p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-sm font-bold text-gray-900">Gallery</h3>
+                    <button
+                        type="button"
+                        :disabled="galleryUploading"
+                        @click="openGalleryUpload"
+                        class="flex items-center gap-1.5 px-3 py-2 rounded-full bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-sm font-semibold hover:opacity-95 disabled:opacity-60 transition-opacity"
+                    >
+                        <Plus class="w-4 h-4" />
+                        {{ galleryUploading ? 'Uploading…' : 'Add photos' }}
+                    </button>
+                </div>
+                <input
+                    ref="galleryInputRef"
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    class="hidden"
+                    @change="onGalleryFileChange"
+                />
 
-            <!-- Tab content: Achievements -->
-            <div v-show="activeTab === 'achievements'" class="space-y-4">
-                <div class="grid grid-cols-2 gap-4">
-                    <div class="bg-white rounded-2xl shadow-lg p-6 flex flex-col items-center justify-center aspect-square">
-                        <div class="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center mb-2">
-                            <Heart class="w-8 h-8 text-blue-600" />
-                        </div>
-                        <span class="text-sm font-semibold text-gray-900">Connector</span>
-                        <span class="text-xs text-gray-500">Make your first connection</span>
+                <div v-if="galleryLoading" class="flex justify-center py-12">
+                    <div class="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                </div>
+
+                <div v-else class="grid grid-cols-3 gap-0.5 sm:gap-1">
+                    <!-- Create cell: add photo -->
+                    <button
+                        type="button"
+                        :disabled="galleryUploading"
+                        @click="openGalleryUpload"
+                        class="aspect-square bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center justify-center border-2 border-dashed border-gray-300 text-gray-500 transition-colors"
+                    >
+                        <Plus class="w-8 h-8" />
+                    </button>
+
+                    <!-- Photo cells -->
+                    <div
+                        v-for="photo in galleryPhotos"
+                        :key="photo.id"
+                        class="relative group aspect-square rounded-lg overflow-hidden bg-gray-200"
+                    >
+                        <img
+                            :src="photo.url"
+                            :alt="'Gallery photo'"
+                            class="w-full h-full object-cover"
+                        />
+                        <button
+                            type="button"
+                            :disabled="galleryDeletingId === photo.id"
+                            @click.stop="deleteGalleryPhoto(photo.id)"
+                            class="absolute top-1.5 right-1.5 w-8 h-8 rounded-full bg-black/50 hover:bg-red-500 text-white flex items-center justify-center transition-colors disabled:opacity-50"
+                            aria-label="Delete photo"
+                        >
+                            <Trash2 class="w-4 h-4" />
+                        </button>
                     </div>
-                    <div class="bg-white rounded-2xl shadow-lg p-6 flex flex-col items-center justify-center aspect-square">
-                        <div class="w-16 h-16 rounded-full bg-cyan-100 flex items-center justify-center mb-2">
-                            <GraduationCap class="w-8 h-8 text-cyan-600" />
-                        </div>
-                        <span class="text-sm font-semibold text-gray-900">Scholar</span>
-                        <span class="text-xs text-gray-500">Complete your profile</span>
-                    </div>
-                    <div class="bg-white rounded-2xl shadow-lg p-6 flex flex-col items-center justify-center aspect-square">
-                        <div class="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center mb-2">
-                            <Trophy class="w-8 h-8 text-blue-600" />
-                        </div>
-                        <span class="text-sm font-semibold text-gray-900">Active</span>
-                        <span class="text-xs text-gray-500">Post 5 times</span>
-                    </div>
-                    <div class="bg-white rounded-2xl shadow-lg p-6 flex flex-col items-center justify-center aspect-square">
-                        <div class="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mb-2 opacity-60">
-                            <Target class="w-8 h-8 text-gray-400" />
-                        </div>
-                        <span class="text-sm font-semibold text-gray-500">Coming soon</span>
-                        <span class="text-xs text-gray-400">More badges</span>
-                    </div>
+                </div>
+
+                <p v-if="!galleryLoading && galleryPhotos.length === 0" class="text-sm text-gray-500 mt-3">No photos yet. Tap Add photos to upload one or more.</p>
+
+                <!-- Match back & Matches links -->
+                <div class="mt-6 pt-4 border-t border-gray-100 flex flex-wrap gap-2">
+                    <button
+                        type="button"
+                        @click="router.visit('/like-you?tab=match_back')"
+                        class="px-4 py-2 rounded-xl bg-blue-50 text-blue-700 text-sm font-semibold hover:bg-blue-100"
+                    >
+                        Match back
+                    </button>
+                    <button
+                        type="button"
+                        @click="router.visit('/like-you?tab=matches')"
+                        class="px-4 py-2 rounded-xl bg-cyan-50 text-cyan-700 text-sm font-semibold hover:bg-cyan-100"
+                    >
+                        My matches
+                    </button>
                 </div>
             </div>
         </div>
