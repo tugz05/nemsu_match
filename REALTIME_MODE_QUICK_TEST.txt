@@ -1,0 +1,200 @@
+┌──────────────────────────────────────────────────────────────┐
+│       REAL-TIME MODE SWITCHING - QUICK TEST GUIDE            │
+│      Auto-Navigation When Modes Change                       │
+└──────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════
+🎯 WHAT THIS DOES
+═══════════════════════════════════════════════════════════════
+
+When you toggle Maintenance Mode or Pre-Registration Mode in the
+Superadmin panel, ALL connected users are AUTOMATICALLY redirected
+to the appropriate page IN REAL-TIME (no manual refresh needed)!
+
+═══════════════════════════════════════════════════════════════
+⚡ QUICK TEST - 2 BROWSER WINDOWS
+═══════════════════════════════════════════════════════════════
+
+WINDOW 1 (Regular User):
+  1. Login as regular user
+  2. Browse to http://localhost/browse
+  3. Keep this window visible
+
+WINDOW 2 (Superadmin):
+  1. Login as superadmin
+  2. Go to http://localhost/superadmin/settings
+  3. Find "Maintenance Mode" toggle
+
+TEST:
+  1. Toggle "Maintenance Mode" ON in Window 2
+     → Window 1 IMMEDIATELY redirects to maintenance page ✨
+  
+  2. Toggle "Maintenance Mode" OFF in Window 2
+     → Window 1 IMMEDIATELY goes back to browse page ✨
+
+═══════════════════════════════════════════════════════════════
+📋 TEST SCENARIOS
+═══════════════════════════════════════════════════════════════
+
+TEST 1: MAINTENANCE MODE
+┌────────────────────────────────────────────────────────────┐
+│ Browser 1: Regular user on /browse                        │
+│ Browser 2: Superadmin toggles Maintenance ON              │
+│ Expected: Browser 1 → Maintenance Page (automatic)        │
+│ Then: Superadmin toggles Maintenance OFF                  │
+│ Expected: Browser 1 → Back to /browse (automatic)         │
+└────────────────────────────────────────────────────────────┘
+
+TEST 2: PRE-REGISTRATION MODE
+┌────────────────────────────────────────────────────────────┐
+│ Browser 1: Guest (not logged in) on homepage             │
+│ Browser 2: Superadmin toggles Pre-Registration ON        │
+│ Expected: Browser 1 → Pre-Reg Page (automatic)           │
+│ Then: Superadmin toggles Pre-Registration OFF            │
+│ Expected: Browser 1 → Back to homepage (automatic)       │
+└────────────────────────────────────────────────────────────┘
+
+TEST 3: ADMIN BYPASS
+┌────────────────────────────────────────────────────────────┐
+│ Browser 1: Admin user on /browse                          │
+│ Browser 2: Superadmin toggles Maintenance ON              │
+│ Expected: Browser 1 → NO REDIRECT (admin bypass)          │
+│ Console: "User is admin, bypassing maintenance mode"      │
+└────────────────────────────────────────────────────────────┘
+
+TEST 4: AUTHENTICATED BYPASS (PRE-REG)
+┌────────────────────────────────────────────────────────────┐
+│ Browser 1: Logged-in user on /browse                      │
+│ Browser 2: Superadmin toggles Pre-Registration ON         │
+│ Expected: Browser 1 → NO REDIRECT (authenticated bypass)  │
+│ Console: "User is authenticated, bypassing..."            │
+└────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════
+🔍 CONSOLE DEBUGGING
+═══════════════════════════════════════════════════════════════
+
+Open Browser Console (F12) to see real-time logs:
+
+When Mode Enabled:
+  ✓ Subscribed to app-status channel
+  Maintenance mode changed: true
+  (page reloads automatically)
+
+When Admin Bypasses:
+  Maintenance mode changed: true
+  User is admin, bypassing maintenance mode
+  (no reload)
+
+═══════════════════════════════════════════════════════════════
+✅ EXPECTED BEHAVIOR
+═══════════════════════════════════════════════════════════════
+
+MAINTENANCE MODE ON:
+  Regular Users → Maintenance Page (instant)
+  Admins → No change (bypass)
+  Superadmins → No change (bypass)
+
+MAINTENANCE MODE OFF:
+  All Users → Normal app restored (instant)
+
+PRE-REGISTRATION MODE ON:
+  Guests → Pre-Registration Page (instant)
+  Authenticated Users → No change (bypass)
+
+PRE-REGISTRATION MODE OFF:
+  Guests → Normal homepage (instant)
+
+═══════════════════════════════════════════════════════════════
+⚙️ SYSTEM CHECK
+═══════════════════════════════════════════════════════════════
+
+Before testing, verify:
+
+□ Broadcasting configured in .env:
+  BROADCAST_DRIVER=pusher
+  PUSHER_APP_ID=xxx
+  PUSHER_APP_KEY=xxx
+  PUSHER_APP_SECRET=xxx
+  PUSHER_APP_CLUSTER=xxx
+
+□ Laravel Echo working:
+  Open console, type: window.Echo
+  Should show Echo object (not undefined)
+
+□ Middleware registered:
+  Check bootstrap/app.php has:
+  - CheckMaintenanceMode
+  - CheckPreRegistrationMode
+
+□ Events exist:
+  - app/Events/MaintenanceModeChanged.php
+  - app/Events/PreRegistrationModeChanged.php
+
+□ Channel defined:
+  Check routes/channels.php has 'app-status'
+
+═══════════════════════════════════════════════════════════════
+🐛 TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════
+
+PROBLEM: Nothing happens when toggling
+  → Check browser console for errors
+  → Verify Echo is connected: console.log(window.Echo)
+  → Check Pusher credentials in .env
+  → Run: php artisan config:cache
+
+PROBLEM: "Echo is not defined"
+  → Check resources/js/echo.ts exists
+  → Verify it's imported in app.ts
+  → Run: npm install laravel-echo pusher-js
+
+PROBLEM: Event not broadcasting
+  → Start queue worker: php artisan queue:work
+  → Check broadcast driver: php artisan config:show broadcasting
+
+PROBLEM: Redirects but wrong page
+  → Clear config: php artisan config:clear
+  → Check database: SELECT * FROM app_settings;
+  → Verify middleware in bootstrap/app.php
+
+═══════════════════════════════════════════════════════════════
+📁 FILES INVOLVED
+═══════════════════════════════════════════════════════════════
+
+Backend:
+  ✓ app/Events/MaintenanceModeChanged.php
+  ✓ app/Events/PreRegistrationModeChanged.php
+  ✓ app/Http/Controllers/Superadmin/SettingsController.php
+  ✓ routes/channels.php
+
+Frontend:
+  ✓ resources/js/app.ts (global listener)
+  ✓ resources/js/composables/useAppStatus.ts
+  ✓ resources/js/components/AppStatusListener.vue
+
+Middleware:
+  ✓ app/Http/Middleware/CheckMaintenanceMode.php
+  ✓ app/Http/Middleware/CheckPreRegistrationMode.php
+
+Pages:
+  ✓ resources/js/pages/MaintenancePage.vue
+  ✓ resources/js/pages/PreRegistration.vue
+
+═══════════════════════════════════════════════════════════════
+🚀 ONE-LINER TEST
+═══════════════════════════════════════════════════════════════
+
+1. Open 2 browsers side-by-side
+2. Browser 1: Regular user browsing app
+3. Browser 2: Superadmin → Settings → Toggle Maintenance ON
+4. Watch Browser 1 instantly switch to maintenance page! ✨
+
+═══════════════════════════════════════════════════════════════
+
+🎉 REAL-TIME MODE SWITCHING IS NOW ACTIVE!
+
+When superadmins change modes, users are instantly redirected.
+No manual refresh. No confusion. Just smooth, automatic transitions.
+
+═══════════════════════════════════════════════════════════════

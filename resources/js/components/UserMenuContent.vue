@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Link, router } from '@inertiajs/vue3';
-import { LogOut, Settings } from 'lucide-vue-next';
+import { LogOut, Settings, Shield } from 'lucide-vue-next';
 import {
     DropdownMenuGroup,
     DropdownMenuItem,
@@ -21,7 +21,7 @@ const handleLogout = () => {
 };
 
 defineProps<Props>();
-</script>
+
 
 <template>
     <DropdownMenuLabel class="p-0 font-normal">
@@ -35,6 +35,12 @@ defineProps<Props>();
             <Link class="block w-full cursor-pointer" :href="edit()" prefetch>
                 <Settings class="mr-2 h-4 w-4" />
                 Settings
+            </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem v-if="user.is_superadmin" :as-child="true">
+            <Link class="block w-full cursor-pointer" href="/superadmin">
+                <Shield class="mr-2 h-4 w-4" />
+                Superadmin Portal
             </Link>
         </DropdownMenuItem>
     </DropdownMenuGroup>

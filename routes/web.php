@@ -3,6 +3,7 @@
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\Api\AutocompleteController;
 use App\Http\Controllers\Auth\NEMSUOAuthController;
+use App\Http\Controllers\Auth\AdminAuthController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\GalleryController;
 use App\Http\Controllers\MatchmakingController;
@@ -26,6 +27,11 @@ Route::get('nemsu/login', [NEMSUOAuthController::class, 'showLogin'])->name('nem
 Route::get('oauth/nemsu/redirect', [NEMSUOAuthController::class, 'redirect'])->name('oauth.nemsu.redirect');
 Route::get('oauth/nemsu/callback', [NEMSUOAuthController::class, 'callback'])->name('oauth.nemsu.callback');
 Route::post('nemsu/logout', [NEMSUOAuthController::class, 'logout'])->name('nemsu.logout');
+
+// Admin Authentication Routes
+Route::get('admin/login', [AdminAuthController::class, 'showLogin'])->name('admin.login');
+Route::post('admin/login', [AdminAuthController::class, 'login']);
+Route::post('admin/logout', [AdminAuthController::class, 'logout'])->name('admin.logout');
 
 // Profile Setup Routes
 Route::middleware(['auth'])->group(function () {
@@ -216,3 +222,34 @@ Route::middleware(['auth', 'verified', 'profile.completed'])->group(function () 
 });
 
 // Settings routes removed - will create custom NEMSU Match settings later if needed
+
+// Superadmin routes
+Route::middleware(['auth', 'verified', 'superadmin'])->prefix('superadmin')->name('superadmin.')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Superadmin\DashboardController::class, 'index'])->name('dashboard');
+    
+    // Admin & Editor Management
+    Route::get('admins', [\App\Http\Controllers\Superadmin\AdminController::class, 'index'])->name('admins.index');
+    Route::post('admins', [\App\Http\Controllers\Superadmin\AdminController::class, 'store'])->name('admins.store');
+    Route::put('admins/{adminRole}', [\App\Http\Controllers\Superadmin\AdminController::class, 'update'])->name('admins.update');
+    Route::delete('admins/{adminRole}', [\App\Http\Controllers\Superadmin\AdminController::class, 'destroy'])->name('admins.destroy');
+    Route::get('admins/search-users', [\App\Http\Controllers\Superadmin\AdminController::class, 'searchUsers'])->name('admins.search-users');
+    
+    // User Management
+    Route::get('users', [\App\Http\Controllers\Superadmin\UserController::class, 'index'])->name('users.index');
+    Route::get('users/{user}', [\App\Http\Controllers\Superadmin\UserController::class, 'show'])->name('users.show');
+    Route::put('users/{user}', [\App\Http\Controllers\Superadmin\UserController::class, 'update'])->name('users.update');
+    Route::post('users/{user}/toggle-status', [\App\Http\Controllers\Superadmin\UserController::class, 'toggleStatus'])->name('users.toggle-status');
+    Route::delete('users/{user}', [\App\Http\Controllers\Superadmin\UserController::class, 'destroy'])->name('users.destroy');
+    
+    // App Settings
+    Route::get('settings', [\App\Http\Controllers\Superadmin\SettingsController::class, 'index'])->name('settings.index');
+    Route::post('settings', [\App\Http\Controllers\Superadmin\SettingsController::class, 'store'])->name('settings.store');
+    Route::put('settings/{appSetting}', [\App\Http\Controllers\Superadmin\SettingsController::class, 'update'])->name('settings.update');
+    Route::delete('settings/{appSetting}', [\App\Http\Controllers\Superadmin\SettingsController::class, 'destroy'])->name('settings.destroy');
+    Route::post('settings/bulk-update', [\App\Http\Controllers\Superadmin\SettingsController::class, 'bulkUpdate'])->name('settings.bulk-update');
+});
+
+// Admin routes (for regular admins and editors)
+Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.')->group(function () {
+    Route::get('dashboard', [\App\Http\Controllers\Admin\DashboardController::class, 'index'])->name('dashboard');
+});

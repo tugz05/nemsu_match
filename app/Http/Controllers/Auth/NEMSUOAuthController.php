@@ -17,6 +17,11 @@ class NEMSUOAuthController extends Controller
      */
     public function showLogin()
     {
+        // If user is already authenticated, redirect to browse
+        if (Auth::check()) {
+            return redirect()->route('browse');
+        }
+
         return Inertia::render('auth/NEMSULogin');
     }
 

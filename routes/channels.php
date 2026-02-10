@@ -27,3 +27,17 @@ Broadcast::channel('conversation.{id}', function (User $user, int $id): bool {
 
     return (int) $conversation->user1_id === (int) $user->id || (int) $conversation->user2_id === (int) $user->id;
 });
+
+// Presence channel for tracking online users
+Broadcast::channel('online', function (User $user): array {
+    return [
+        'id' => $user->id,
+        'name' => $user->display_name ?? $user->fullname,
+    ];
+});
+
+// Public channel for app status updates (maintenance mode, pre-registration, etc.)
+// This is a public channel, no authentication needed
+Broadcast::channel('app-status', function (): bool {
+    return true;
+});

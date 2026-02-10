@@ -85,8 +85,11 @@ const successMessage = ref('');
 /** Emoji pickers */
 const showComposeEmojiPicker = ref(false);
 const showMessageEmojiPicker = ref(false);
+/** Online status tracking */
+const onlineUserIds = ref<Set<number>>(new Set());
 let typingTimeout: ReturnType<typeof setTimeout> | null = null;
 let echoLeave: (() => void) | null = null;
+let presenceChannel: any = null;
 let newMessageSearchDebounce: ReturnType<typeof setTimeout> | null = null;
 
 const page = usePage();
@@ -156,6 +159,94 @@ const messagesWithDateGroups = computed(() => {
 
 function displayName(u: OtherUser | null): string {
     return u?.display_name || u?.fullname || 'User';
+}
+
+function isUserOnline(userId: number): boolean {
+    return onlineUserIds.value.has(userId);
+}
+
+function updateUserOnlineStatus(userId: number, isOnline: boolean) {
+    if (isOnline) {
+        onlineUserIds.value.add(userId);
+    } else {
+        onlineUserIds.value.delete(userId);
+    }
+    
+    // Update conversations list
+    conversations.value = conversations.value.map(c => ({
+        ...c,
+        other_user: {
+            ...c.other_user,
+            is_online: c.other_user.id === userId ? isOnline : c.other_user.is_online,
+        },
+    }));
+    
+    // Update current conversation if it's the same user
+    if (currentConversation.value && currentConversation.value.other_user.id === userId) {
+        currentConversation.value = {
+            ...currentConversation.value,
+            other_user: {
+                ...currentConversation.value.other_user,
+                is_online: isOnline,
+            },
+        };
+    }
+}
+
+function subscribeToPresence() {
+    const Echo = getEcho();
+    if (!Echo) return;
+    
+    // Join the online presence channel
+    presenceChannel = Echo.join('online')
+        .here((users: Array<{ id: number }>) => {
+            // Users currently in the channel
+            users.forEach((user) => {
+                onlineUserIds.value.add(user.id);
+            });
+            updateConversationsOnlineStatus();
+        })
+        .joining((user: { id: number }) => {
+            // User joined (came online)
+            updateUserOnlineStatus(user.id, true);
+        })
+        .leaving((user: { id: number }) => {
+            // User left (went offline)
+            updateUserOnlineStatus(user.id, false);
+        })
+        .error((error: any) => {
+            console.error('Presence channel error:', error);
+        });
+}
+
+function updateConversationsOnlineStatus() {
+    // Update all conversations with current online status
+    conversations.value = conversations.value.map(c => ({
+        ...c,
+        other_user: {
+            ...c.other_user,
+            is_online: isUserOnline(c.other_user.id),
+        },
+    }));
+    
+    // Update current conversation
+    if (currentConversation.value) {
+        currentConversation.value = {
+            ...currentConversation.value,
+            other_user: {
+                ...currentConversation.value.other_user,
+                is_online: isUserOnline(currentConversation.value.other_user.id),
+            },
+        };
+    }
+}
+
+function leavePresence() {
+    const Echo = getEcho();
+    if (Echo && presenceChannel) {
+        Echo.leave('online');
+        presenceChannel = null;
+    }
 }
 
 async function fetchConversations() {
@@ -798,6 +889,7 @@ function handleClickOutside(event: MouseEvent) {
 onMounted(() => {
     fetchConversations();
     fetchRequests();
+    subscribeToPresence(); // Subscribe to online presence
     document.addEventListener('click', handleClickOutside);
     document.addEventListener('click', handleClickOutsideEmoji);
 });
@@ -806,6 +898,7 @@ onUnmounted(() => {
     if (typingTimeout) clearTimeout(typingTimeout);
     if (echoLeave) echoLeave();
     if (newMessageSearchDebounce) clearTimeout(newMessageSearchDebounce);
+    leavePresence(); // Clean up presence subscription
     document.removeEventListener('click', handleClickOutside);
     document.removeEventListener('click', handleClickOutsideEmoji);
 });

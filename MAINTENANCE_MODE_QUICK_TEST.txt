@@ -1,0 +1,357 @@
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║     MAINTENANCE & PRE-REGISTRATION MODES - QUICK TEST         ║
+║              Test Your New Features Now!                      ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+
+✅ FEATURES IMPLEMENTED!
+
+Two new modes have been added to control user access:
+1. Maintenance Mode - Show maintenance page to users
+2. Pre-Registration Mode - Show coming soon page to guests
+
+═══════════════════════════════════════════════════════════════
+
+🔧 TEST MAINTENANCE MODE
+
+Step 1: Enable Maintenance Mode
+──────────────────────────────────────────────────────────────
+Method A: Via Superadmin Portal (Recommended)
+  1. Visit: http://localhost/admin/login
+  2. Login as: superadmin@nemsu.edu.ph / Superadmin123!
+  3. Go to: Settings
+  4. Find "Maintenance Mode" under General Settings
+  5. Toggle it ON
+
+Method B: Via Tinker
+  php artisan tinker
+  AppSetting::set('maintenance_mode', true);
+──────────────────────────────────────────────────────────────
+
+Step 2: Test the Maintenance Page
+──────────────────────────────────────────────────────────────
+✓ Open incognito window
+✓ Visit: http://localhost/
+✓ You should see: Beautiful maintenance page
+✓ Features shown:
+  • Animated wrench icon
+  • "Under Maintenance" message
+  • Expected duration info
+  • What's being updated list
+  • "Check Status" button
+  • Contact information
+──────────────────────────────────────────────────────────────
+
+Step 3: Test Admin Bypass
+──────────────────────────────────────────────────────────────
+✓ Login as superadmin or admin
+✓ You should bypass maintenance
+✓ App works normally for admins
+──────────────────────────────────────────────────────────────
+
+Step 4: Disable Maintenance Mode
+──────────────────────────────────────────────────────────────
+Method A: Via Settings
+  • Toggle OFF in /superadmin/settings
+
+Method B: Via Tinker
+  php artisan tinker
+  AppSetting::set('maintenance_mode', false);
+──────────────────────────────────────────────────────────────
+
+═══════════════════════════════════════════════════════════════
+
+📝 TEST PRE-REGISTRATION MODE
+
+Step 1: Enable Pre-Registration Mode
+──────────────────────────────────────────────────────────────
+Method A: Via Superadmin Portal
+  1. Go to: /superadmin/settings
+  2. Find "Pre-Registration Mode" under Users Settings
+  3. Toggle it ON
+
+Method B: Via Tinker
+  php artisan tinker
+  AppSetting::set('pre_registration_mode', true);
+──────────────────────────────────────────────────────────────
+
+Step 2: Test Pre-Registration Page (As Guest)
+──────────────────────────────────────────────────────────────
+✓ Logout or open incognito window
+✓ Visit: http://localhost/
+✓ You should see: Pre-registration page
+✓ Features shown:
+  • Two-column layout
+  • "Coming Soon" message on left
+  • Feature highlights
+  • 👥 LIVE COUNTER showing pre-registered users
+  • TrendingUp indicator with "Join them!"
+  • Registration form on right
+  • Counter badge above form
+  • Form fields: Name, Email, NEMSU ID
+  • Success confirmation after submit
+──────────────────────────────────────────────────────────────
+
+Step 3: Test Form Submission
+──────────────────────────────────────────────────────────────
+✓ Fill in the form:
+  Name: Test User
+  Email: test@nemsu.edu.ph
+  NEMSU ID: 2024-12345 (optional)
+✓ Click "Notify Me When Live"
+✓ Should see: Success message with checkmark
+✓ Message: "You're On The List!"
+──────────────────────────────────────────────────────────────
+
+Step 4: Test Authenticated User Bypass
+──────────────────────────────────────────────────────────────
+✓ Login with any user account
+✓ You should bypass pre-registration
+✓ App works normally for logged-in users
+──────────────────────────────────────────────────────────────
+
+Step 5: Disable Pre-Registration Mode
+──────────────────────────────────────────────────────────────
+Method A: Via Settings
+  • Toggle OFF in /superadmin/settings
+
+Method B: Via Tinker
+  php artisan tinker
+  AppSetting::set('pre_registration_mode', false);
+──────────────────────────────────────────────────────────────
+
+═══════════════════════════════════════════════════════════════
+
+🎯 QUICK COMMANDS
+
+Enable/Disable via Tinker:
+──────────────────────────────────────────────────────────────
+php artisan tinker
+
+# Maintenance Mode
+AppSetting::set('maintenance_mode', true);   // Enable
+AppSetting::set('maintenance_mode', false);  // Disable
+
+# Pre-Registration Mode
+AppSetting::set('pre_registration_mode', true);   // Enable
+AppSetting::set('pre_registration_mode', false);  // Disable
+
+# Check Current Status
+AppSetting::get('maintenance_mode');
+AppSetting::get('pre_registration_mode');
+──────────────────────────────────────────────────────────────
+
+═══════════════════════════════════════════════════════════════
+
+✨ WHAT'S INCLUDED
+
+Files Created:
+✓ CheckMaintenanceMode middleware
+✓ CheckPreRegistrationMode middleware
+✓ MaintenancePage.vue
+✓ PreRegistration.vue
+✓ Documentation files
+
+Features:
+✓ Toggle in superadmin settings
+✓ Beautiful, responsive pages
+✓ Admin bypass enabled
+✓ Immediate effect (no restart)
+✓ Cached for performance
+✓ Professional design
+
+═══════════════════════════════════════════════════════════════
+
+🎨 PAGE DESIGNS
+
+Maintenance Page:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Blue/cyan gradient background
+• Animated wrench icon with pulse
+• White card with backdrop blur
+• Info cards for duration and updates
+• Feature list of what's being updated
+• "Check Status" refresh button
+• Contact email for support
+• Fully responsive
+
+Pre-Registration Page:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Split screen layout
+• Left: Blue gradient with features
+  - Heart icon
+  - "Coming Soon" heading
+  - Feature list with checkmarks
+  - 👥 Live counter card showing registered users
+  - TrendingUp icon with "Join them!"
+• Right: White form card
+  - Counter badge (X students already registered)
+  - Pulsing green dot indicator
+  - Name input
+  - Email input (NEMSU)
+  - Optional NEMSU ID
+  - Submit button
+  - Success state
+• Fully responsive
+• Social proof via user count
+
+═══════════════════════════════════════════════════════════════
+
+🔒 ACCESS CONTROL
+
+Maintenance Mode:
+┌─────────────────┬────────────────────────────────────────┐
+│ User Type       │ Access                                 │
+├─────────────────┼────────────────────────────────────────┤
+│ Guest           │ ❌ See maintenance page               │
+│ Regular User    │ ❌ See maintenance page               │
+│ Admin           │ ✅ Full access (bypass)               │
+│ Superadmin      │ ✅ Full access (bypass)               │
+└─────────────────┴────────────────────────────────────────┘
+
+Pre-Registration Mode:
+┌─────────────────┬────────────────────────────────────────┐
+│ User Type       │ Access                                 │
+├─────────────────┼────────────────────────────────────────┤
+│ Guest           │ ❌ See pre-registration page          │
+│ Logged In User  │ ✅ Full access (bypass)               │
+│ Admin           │ ✅ Full access (bypass)               │
+│ Superadmin      │ ✅ Full access (bypass)               │
+└─────────────────┴────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════
+
+📱 RESPONSIVE DESIGN
+
+Both pages work perfectly on:
+✓ Desktop (1920px+)
+✓ Laptop (1366px+)
+✓ Tablet (768px+)
+✓ Mobile (375px+)
+
+═══════════════════════════════════════════════════════════════
+
+🧪 FULL TEST CHECKLIST
+
+Maintenance Mode:
+□ Enable via settings or tinker
+□ Visit homepage as guest → See maintenance page
+□ Login as admin → Bypass maintenance
+□ Login as superadmin → Bypass maintenance
+□ Click "Check Status" button → Reload works
+□ Disable maintenance mode
+□ All users can access normally
+
+Pre-Registration Mode:
+□ Enable via settings or tinker
+□ Visit as guest → See pre-registration page
+□ Fill form and submit → See success message
+□ Login with user account → Bypass pre-reg
+□ Login as admin → Bypass pre-reg
+□ Disable pre-registration mode
+□ Guests can access normally
+
+Both Modes Together:
+□ Enable both modes
+□ Maintenance should take priority
+□ Disable maintenance, keep pre-reg
+□ Should show pre-reg to guests
+□ Disable both → Normal access
+
+═══════════════════════════════════════════════════════════════
+
+💡 USE CASES
+
+Maintenance Mode:
+• System updates
+• Database migration
+• Server maintenance
+• Emergency fixes
+• Performance optimization
+
+Pre-Registration Mode:
+• Before launch
+• Closed beta testing
+• Building user interest
+• Gradual rollout
+• Collecting early adopters
+
+═══════════════════════════════════════════════════════════════
+
+📚 DOCUMENTATION
+
+Detailed Guides:
+• MAINTENANCE_PREREGISTRATION_MODES.md - Complete docs
+• MAINTENANCE_MODE_QUICK_TEST.txt - This file
+
+Related Files:
+• CheckMaintenanceMode.php - Middleware
+• CheckPreRegistrationMode.php - Middleware
+• MaintenancePage.vue - Maintenance UI
+• PreRegistration.vue - Pre-reg UI
+
+═══════════════════════════════════════════════════════════════
+
+✅ READY TO TEST!
+
+1. Start your dev server if not running:
+   composer run dev
+
+2. Enable maintenance mode:
+   php artisan tinker
+   AppSetting::set('maintenance_mode', true);
+
+3. Visit homepage:
+   http://localhost/
+
+4. You should see the maintenance page!
+
+═══════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════
+
+🎯 NEW FEATURE: PRE-REGISTRATION COUNTER
+
+What It Shows:
+──────────────────────────────────────────────────────────────
+• Live count of pre-registered REGULAR users
+• Excludes admins and superadmins
+• Formatted with thousand separators (1,234)
+• Updates on every page load
+
+Where It Appears:
+──────────────────────────────────────────────────────────────
+Location 1: Left side card
+  ┌────────────────────────────────────┐
+  │  [👥]  1,234                  ↗   │
+  │      Students Pre-Registered       │
+  │             Join them!             │
+  └────────────────────────────────────┘
+
+Location 2: Above form (badge)
+  [👥 1,234 students already registered 🟢]
+
+Why It's Powerful:
+──────────────────────────────────────────────────────────────
+✓ Social Proof - Shows others are interested
+✓ FOMO - Fear of missing out
+✓ Trust - Real numbers, not fake
+✓ Urgency - Join the growing community
+✓ Motivation - "Join them!" call-to-action
+
+Test the Counter:
+──────────────────────────────────────────────────────────────
+1. Enable pre-registration mode
+2. Visit the page
+3. Check the counter shows your user count
+4. Create a new regular user (not admin)
+5. Refresh the pre-reg page
+6. Counter should increase by 1!
+
+═══════════════════════════════════════════════════════════════
+
+Need help? Check MAINTENANCE_PREREGISTRATION_MODES.md
+For counter details: PREREG_COUNTER_FEATURE.md
+
+Happy testing! 🚀

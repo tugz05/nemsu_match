@@ -48,6 +48,9 @@ class User extends Authenticatable
         'preferred_courses',
         'profile_completed',
         'nemsu_id',
+        'is_admin',
+        'is_superadmin',
+        'last_seen_at',
     ];
 
     /**
@@ -77,6 +80,7 @@ class User extends Authenticatable
             'profile_completed' => 'boolean',
             'last_seen_at' => 'datetime',
             'is_admin' => 'boolean',
+            'is_superadmin' => 'boolean',
             'preferred_age_min' => 'integer',
             'preferred_age_max' => 'integer',
             'courses' => 'array',
@@ -235,5 +239,11 @@ class User extends Authenticatable
     public function galleryPhotos(): HasMany
     {
         return $this->hasMany(UserGalleryPhoto::class);
+    }
+
+    /** Admin role assigned to this user */
+    public function adminRole(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(\App\Models\Superadmin\AdminRole::class);
     }
 }
