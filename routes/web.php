@@ -34,8 +34,13 @@ Route::get('admin/login', [AdminAuthController::class, 'showLogin'])->name('admi
 Route::post('admin/login', [AdminAuthController::class, 'login']);
 Route::post('admin/logout', [AdminAuthController::class, 'logout'])->name('admin.logout');
 
-// Profile Setup Routes
+// Profile Setup & Student ID Routes
 Route::middleware(['auth'])->group(function () {
+    // Student ID step (for personal Google accounts)
+    Route::get('student-id', [StudentIdController::class, 'show'])->name('student-id.show');
+    Route::post('student-id', [StudentIdController::class, 'store'])->name('student-id.store');
+
+    // Profile setup (after student ID step when required)
     Route::get('profile/setup', [ProfileSetupController::class, 'show'])->name('profile.setup');
     Route::post('profile/setup', [ProfileSetupController::class, 'store'])->name('profile.store');
     Route::put('profile/setup', [ProfileSetupController::class, 'update'])->name('profile-setup.update');

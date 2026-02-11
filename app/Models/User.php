@@ -55,6 +55,8 @@ class User extends Authenticatable
         'super_like_count_today',
         'super_like_reset_at',
         'nemsu_id',
+        'student_id',
+        'is_workspace_verified',
         'is_admin',
         'is_superadmin',
         'last_seen_at',
@@ -336,5 +338,18 @@ class User extends Authenticatable
     public function adminRole(): \Illuminate\Database\Eloquent\Relations\HasOne
     {
         return $this->hasOne(\App\Models\Superadmin\AdminRole::class);
+    }
+
+    /**
+     * Whether this user is staff (superadmin, admin, or editor) and should bypass
+     * maintenance mode and pre-registration mode restrictions.
+     */
+    public function isStaff(): bool
+    {
+        if ($this->is_superadmin || $this->is_admin) {
+            return true;
+        }
+
+        return $this->adminRole()->where('is_active', true)->exists();
     }
 }

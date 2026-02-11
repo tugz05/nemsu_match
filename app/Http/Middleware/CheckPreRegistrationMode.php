@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Models\Superadmin\AppSetting;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Symfony\Component\HttpFoundation\Response;
 use Inertia\Inertia;
 
@@ -12,6 +13,8 @@ class CheckPreRegistrationMode
 {
     /**
      * Handle an incoming request.
+     * When pre-registration (or registration closed) is ON, only regular users are affected.
+     * Superadmin, admin, and editor can still use the app normally.
      */
     public function handle(Request $request, Closure $next): Response
     {
@@ -32,7 +35,15 @@ class CheckPreRegistrationMode
             || $request->routeIs('profile-setup.update')
             || $request->routeIs('consent.show')
             || $request->routeIs('consent.accept')
+            || $request->routeIs('student-id.show')
+            || $request->routeIs('student-id.store')
         ) {
+            return $next($request);
+        }
+
+        // When pre-registration/registration-closed is ON, staff (superadmin, admin, editor) are not affected
+        $user = Auth::user();
+        if ($user && $user->isStaff()) {
             return $next($request);
         }
 

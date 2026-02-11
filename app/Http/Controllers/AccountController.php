@@ -67,6 +67,7 @@ class AccountController extends Controller
                 'id' => $user->id,
                 'display_name' => $user->display_name,
                 'fullname' => $user->fullname,
+                'is_workspace_verified' => (bool) $user->is_workspace_verified,
                 'email' => $user->email,
                 'campus' => $user->campus,
                 'academic_program' => $user->academic_program,
@@ -104,8 +105,8 @@ class AccountController extends Controller
         $user = Auth::user();
 
         $validated = $request->validate([
-            'display_name' => 'sometimes|string|max:255',
-            'fullname' => 'sometimes|string|max:255',
+            'display_name' => 'sometimes|string|max:255|unique:users,display_name,' . $user->id,
+            'fullname' => 'sometimes|string|max:255|unique:users,fullname,' . $user->id,
             'campus' => 'sometimes|string|max:255',
             'academic_program' => 'sometimes|string|max:255',
             'year_level' => 'sometimes|string|max:255',

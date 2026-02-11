@@ -26,21 +26,23 @@ class NEMSUOAuthController extends Controller
     }
 
     /**
-     * Redirect to Google OAuth with NEMSU domain restriction
+     * Redirect to Google OAuth (NEMSU Workspace or personal Google account).
+     *
+     * We no longer hard-restrict the domain here so users can choose either:
+     * - NEMSU Google Workspace account (@nemsu.edu.ph) → auto-verified
+     * - Personal Google account (e.g. @gmail.com)     → will be asked for NEMSU ID
      */
     public function redirect()
     {
         $clientId = config('services.google.client_id');
         $redirectUri = config('services.google.redirect');
-        $nemsuDomain = config('services.nemsu.domain', 'nemsu.edu.ph');
 
-        // Build Google OAuth URL with NEMSU domain restriction
+        // Build Google OAuth URL
         $params = [
             'client_id' => $clientId,
             'redirect_uri' => $redirectUri,
             'response_type' => 'code',
             'scope' => 'openid email profile',
-            'hd' => $nemsuDomain, // Restrict to NEMSU domain
             'prompt' => 'select_account', // Force account selection
             'access_type' => 'online',
             'state' => csrf_token(), // CSRF protection
@@ -91,11 +93,13 @@ class NEMSUOAuthController extends Controller
 
             $googleUser = $userResponse->json();
 
-            // Validate NEMSU email domain
             $email = $googleUser['email'];
-            if (!Str::endsWith($email, '@nemsu.edu.ph')) {
+            $isWorkspace = Str::endsWith($email, '@nemsu.edu.ph');
+
+            // Allow NEMSU Workspace and personal Gmail; reject other domains.
+            if (! Str::endsWith($email, ['@nemsu.edu.ph', '@gmail.com'])) {
                 return redirect()->route('home')->withErrors([
-                    'email' => 'Only NEMSU email addresses (@nemsu.edu.ph) are allowed. Please use your NEMSU Google Workspace account.',
+                    'email' => 'Please sign in using your NEMSU Google Workspace account (@nemsu.edu.ph) or personal Gmail account (@gmail.com).',
                 ]);
             }
 
@@ -105,16 +109,28 @@ class NEMSUOAuthController extends Controller
                 [
                     'name' => $googleUser['name'] ?? 'NEMSU Student',
                     'nemsu_id' => $googleUser['id'],
+                    'is_workspace_verified' => $isWorkspace,
                     'email_verified_at' => now(),
                     'password' => Hash::make(Str::random(32)),
                 ]
             );
 
+            // If the user already existed and we now know they used a workspace account, mark them as verified.
+            if ($isWorkspace && ! $user->is_workspace_verified) {
+                $user->forceFill(['is_workspace_verified' => true])->save();
+            }
+
             // Log the user in
             Auth::login($user, true);
 
+            // If this is a personal account (not workspace-verified) and student ID is missing,
+            // require the NEMSU ID step before profile setup.
+            if (! $user->is_workspace_verified && ! $user->student_id) {
+                return redirect()->route('student-id.show');
+            }
+
             // Check if profile is completed
-            if (!$user->profile_completed) {
+            if (! $user->profile_completed) {
                 return redirect()->route('profile.setup')->with('success', 'Welcome! Please complete your profile to continue.');
             }
 

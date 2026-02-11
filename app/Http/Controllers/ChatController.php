@@ -100,6 +100,7 @@ class ChatController extends Controller
                     'fullname' => $other->fullname,
                     'profile_picture' => $other->profile_picture,
                     'is_online' => $other->isOnline(),
+                    'is_workspace_verified' => (bool) $other->is_workspace_verified,
                 ],
                 'last_message' => $lastMessage ? [
                     'id' => $lastMessage->id,
@@ -165,6 +166,7 @@ class ChatController extends Controller
                 'fullname' => $other->fullname,
                 'profile_picture' => $other->profile_picture,
                 'is_online' => $other->isOnline(),
+                'is_workspace_verified' => (bool) $other->is_workspace_verified,
             ],
         ]);
     }
@@ -201,6 +203,7 @@ class ChatController extends Controller
                 'display_name' => $otherUser->display_name,
                 'fullname' => $otherUser->fullname,
                 'profile_picture' => $otherUser->profile_picture,
+                'is_workspace_verified' => (bool) $otherUser->is_workspace_verified,
             ],
         ]);
     }
@@ -415,6 +418,7 @@ class ChatController extends Controller
                     'fullname' => $otherUser->fullname,
                     'profile_picture' => $otherUser->profile_picture,
                     'is_online' => $otherUser->isOnline(),
+                    'is_workspace_verified' => (bool) $otherUser->is_workspace_verified,
                 ],
                 'updated_at' => $conversation->updated_at->toIso8601String(),
             ],
@@ -491,6 +495,7 @@ class ChatController extends Controller
                     'fullname' => $r->fromUser->fullname,
                     'profile_picture' => $r->fromUser->profile_picture,
                     'is_online' => $r->fromUser->isOnline(),
+                    'is_workspace_verified' => (bool) $r->fromUser->is_workspace_verified,
                 ] : null,
                 'body' => $r->body,
                 'status' => $r->status,

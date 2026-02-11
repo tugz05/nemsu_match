@@ -68,6 +68,7 @@ class ProfileController extends Controller
                 'id' => $user->id,
                 'display_name' => $user->display_name,
                 'fullname' => $user->fullname,
+                'is_workspace_verified' => (bool) $user->is_workspace_verified,
                 'campus' => $user->campus,
                 'academic_program' => $user->academic_program,
                 'year_level' => $user->year_level,

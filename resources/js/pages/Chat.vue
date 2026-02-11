@@ -14,6 +14,7 @@ interface OtherUser {
     fullname: string;
     profile_picture: string | null;
     is_online?: boolean;
+    is_workspace_verified?: boolean;
 }
 
 interface ConversationItem {
@@ -1125,7 +1126,19 @@ onUnmounted(() => {
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-2">
-                                <p class="font-semibold text-gray-900 truncate">{{ displayName(c.other_user) }}</p>
+                                <p class="font-semibold text-gray-900 truncate flex items-center gap-1.5">
+                                    <span>{{ displayName(c.other_user) }}</span>
+                                    <span
+                                        v-if="c.other_user.is_workspace_verified"
+                                        class="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-600 text-[10px] font-semibold px-1.5 py-0.5 border border-blue-200 shrink-0"
+                                    >
+                                        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+                                            <path
+                                                d="M12 2a1 1 0 0 1 .6.2l6 4.5a1 1 0 0 1 .4.8v6a5.5 5.5 0 0 1-5.3 5.5H10.3A5.5 5.5 0 0 1 5 13.5v-6a1 1 0 0 1 .4-.8l6-4.5A1 1 0 0 1 12 2zm-1.1 11.9 3.6-3.6a.75.75 0 1 0-1.06-1.06L11 11.78l-1.44-1.44a.75.75 0 1 0-1.06 1.06l1.97 1.97a.75.75 0 0 0 1.03.03z"
+                                            />
+                                        </svg>
+                                    </span>
+                                </p>
                                 <span
                                     v-if="c.is_pending_request && c.pending_request_from_me"
                                     class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-medium whitespace-nowrap"
@@ -1174,7 +1187,19 @@ onUnmounted(() => {
                                 </div>
                             </div>
                             <div class="flex-1 min-w-0">
-                                <p class="font-semibold text-gray-900 truncate">{{ displayName(r.from_user) }}</p>
+                                <p class="font-semibold text-gray-900 truncate flex items-center gap-1.5">
+                                    <span>{{ displayName(r.from_user) }}</span>
+                                    <span
+                                        v-if="r.from_user?.is_workspace_verified"
+                                        class="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-600 text-[10px] font-semibold px-1.5 py-0.5 border border-blue-200 shrink-0"
+                                    >
+                                        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+                                            <path
+                                                d="M12 2a1 1 0 0 1 .6.2l6 4.5a1 1 0 0 1 .4.8v6a5.5 5.5 0 0 1-5.3 5.5H10.3A5.5 5.5 0 0 1 5 13.5v-6a1 1 0 0 1 .4-.8l6-4.5A1 1 0 0 1 12 2zm-1.1 11.9 3.6-3.6a.75.75 0 1 0-1.06-1.06L11 11.78l-1.44-1.44a.75.75 0 1 0-1.06 1.06l1.97 1.97a.75.75 0 0 0 1.03.03z"
+                                            />
+                                        </svg>
+                                    </span>
+                                </p>
                                 <p class="text-sm text-gray-500 truncate mt-0.5">{{ r.body }}</p>
                             </div>
                         </div>
@@ -1235,7 +1260,20 @@ onUnmounted(() => {
                                 />
                             </button>
                             <div class="min-w-0 flex-1">
-                                <p class="font-semibold text-gray-900 truncate">{{ displayName(currentConversation.other_user) }}</p>
+                                <p class="font-semibold text-gray-900 truncate flex items-center gap-1.5">
+                                    <span>{{ displayName(currentConversation.other_user) }}</span>
+                                    <span
+                                        v-if="currentConversation.other_user.is_workspace_verified"
+                                        class="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-600 text-[10px] font-semibold px-1.5 py-0.5 border border-blue-200 shrink-0"
+                                    >
+                                        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+                                            <path
+                                                d="M12 2a1 1 0 0 1 .6.2l6 4.5a1 1 0 0 1 .4.8v6a5.5 5.5 0 0 1-5.3 5.5H10.3A5.5 5.5 0 0 1 5 13.5v-6a1 1 0 0 1 .4-.8l6-4.5A1 1 0 0 1 12 2zm-1.1 11.9 3.6-3.6a.75.75 0 1 0-1.06-1.06L11 11.78l-1.44-1.44a.75.75 0 1 0-1.06 1.06l1.97 1.97a.75.75 0 0 0 1.03.03z"
+                                            />
+                                        </svg>
+                                        Verified
+                                    </span>
+                                </p>
                                 <p class="text-xs text-gray-500">
                                     {{ typingUserId === currentConversation.other_user.id ? 'typing...' : (currentConversation.other_user.is_online ? 'Online' : 'Offline') }}
                                 </p>

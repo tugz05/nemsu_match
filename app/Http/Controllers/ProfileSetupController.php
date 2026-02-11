@@ -28,10 +28,12 @@ class ProfileSetupController extends Controller
      */
     public function store(Request $request)
     {
+        $user = Auth::user();
+
         // Validation with array support for tags
         $validated = $request->validate([
-            'display_name' => 'required|string|max:255',
-            'fullname' => 'required|string|max:255',
+            'display_name' => 'required|string|max:255|unique:users,display_name,' . $user->id,
+            'fullname' => 'required|string|max:255|unique:users,fullname,' . $user->id,
             'campus' => 'required|string|max:255',
             'academic_program' => 'required|string|max:255',
             'year_level' => 'required|string|max:255',
@@ -61,8 +63,6 @@ class ProfileSetupController extends Controller
             'preferred_courses' => 'nullable|array',
             'preferred_courses.*' => 'string|max:255',
         ]);
-
-        $user = Auth::user();
 
         \Log::info('Profile setup attempt', ['user_id' => $user->id]);
 
