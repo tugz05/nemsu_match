@@ -1130,7 +1130,7 @@ onUnmounted(() => {
                                     <span>{{ displayName(c.other_user) }}</span>
                                     <span
                                         v-if="c.other_user.is_workspace_verified"
-                                        class="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-600 text-[10px] font-semibold px-1.5 py-0.5 border border-blue-200 shrink-0"
+                                        class="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-[10px] font-semibold px-2 py-0.5 shadow-sm shrink-0"
                                     >
                                         <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
                                             <path
@@ -1191,7 +1191,7 @@ onUnmounted(() => {
                                     <span>{{ displayName(r.from_user) }}</span>
                                     <span
                                         v-if="r.from_user?.is_workspace_verified"
-                                        class="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-600 text-[10px] font-semibold px-1.5 py-0.5 border border-blue-200 shrink-0"
+                                        class="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-[10px] font-semibold px-2 py-0.5 shadow-sm shrink-0"
                                     >
                                         <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
                                             <path
@@ -1264,7 +1264,7 @@ onUnmounted(() => {
                                     <span>{{ displayName(currentConversation.other_user) }}</span>
                                     <span
                                         v-if="currentConversation.other_user.is_workspace_verified"
-                                        class="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-600 text-[10px] font-semibold px-1.5 py-0.5 border border-blue-200 shrink-0"
+                                        class="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-[10px] font-semibold px-2 py-0.5 shadow-sm shrink-0"
                                     >
                                         <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
                                             <path
