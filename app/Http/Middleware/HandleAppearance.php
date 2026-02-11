@@ -16,7 +16,8 @@ class HandleAppearance
      */
     public function handle(Request $request, Closure $next): Response
     {
-        View::share('appearance', $request->cookie('appearance') ?? 'system');
+        // Always use light theme; ignore browser/system dark mode to avoid UI issues
+        View::share('appearance', 'light');
 
         return $next($request);
     }
