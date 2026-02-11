@@ -13,6 +13,7 @@ use App\Models\MessageRequest;
 use App\Models\Notification;
 use App\Models\User;
 use App\Models\UserMatch;
+use App\Services\ChatContentModeration;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -253,6 +254,12 @@ class ChatController extends Controller
     public function sendMessage(Request $request, Conversation $conversation)
     {
         $request->validate(['body' => 'required|string|max:2000']);
+
+        $moderation = ChatContentModeration::fromConfig()->check($request->body);
+        if (! $moderation['allowed']) {
+            return response()->json(['message' => $moderation['reason']], 422);
+        }
+
         $me = Auth::user();
         if ($conversation->user1_id !== $me->id && $conversation->user2_id !== $me->id) {
             return response()->json(['message' => 'Unauthorized'], 403);
@@ -347,10 +354,15 @@ class ChatController extends Controller
             return response()->json(['message' => 'You already have a pending request to this user'], 422);
         }
 
+        $moderation = ChatContentModeration::fromConfig()->check($request->body);
+        if (! $moderation['allowed']) {
+            return response()->json(['message' => $moderation['reason']], 422);
+        }
+
         // Create conversation immediately so sender can see it in their chat list
         $conversation = Conversation::between($me->id, $other->id);
         $conversation->touch(); // Ensure updated_at is current
-        
+
         // Create the message request
         $req = MessageRequest::create([
             'from_user_id' => $me->id,

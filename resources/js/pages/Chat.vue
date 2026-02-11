@@ -442,11 +442,13 @@ async function sendNewMessageToUser() {
                 openConversation(conv);
             }
         } else {
-            alert(data.message || 'Could not send message.');
+            successMessage.value = data.message || 'Could not send message.';
+            showSuccessToast.value = true;
         }
     } catch (e) {
         console.error(e);
-        alert('Could not send message.');
+        successMessage.value = 'Could not send message. Please try again.';
+        showSuccessToast.value = true;
     } finally {
         sendingNewMessage.value = false;
     }
@@ -614,13 +616,18 @@ async function sendMessage() {
             );
             fetchConversations();
         } else {
-            // If failed, remove the temporary message
+            const data = await res.json().catch(() => ({}));
             messages.value = messages.value.filter(m => m.id !== tempId);
+            newMessageBody.value = tempBody;
+            successMessage.value = data.message || 'Message could not be sent. Please try again.';
+            showSuccessToast.value = true;
         }
     } catch (e) {
         console.error(e);
-        // Remove temporary message on error
         messages.value = messages.value.filter(m => m.id !== tempId);
+        newMessageBody.value = tempBody;
+        successMessage.value = 'Message could not be sent. Please try again.';
+        showSuccessToast.value = true;
     } finally {
         sending.value = false;
     }
