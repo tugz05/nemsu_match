@@ -171,6 +171,8 @@ function updateUserOnlineStatus(userId: number, isOnline: boolean) {
     } else {
         onlineUserIds.value.delete(userId);
     }
+    // Trigger Vue reactivity (Set mutations are not deep-tracked)
+    onlineUserIds.value = new Set(onlineUserIds.value);
 
     // Update conversations list
     conversations.value = conversations.value.map(c => ({
@@ -201,9 +203,9 @@ function subscribeToPresence() {
     presenceChannel = Echo.join('online')
         .here((users: Array<{ id: number }>) => {
             // Users currently in the channel
-            users.forEach((user) => {
-                onlineUserIds.value.add(user.id);
-            });
+            const next = new Set<number>();
+            users.forEach((user) => next.add(user.id));
+            onlineUserIds.value = next;
             updateConversationsOnlineStatus();
         })
         .joining((user: { id: number }) => {
@@ -259,6 +261,8 @@ async function fetchConversations() {
         if (res.ok) {
             const data = await res.json();
             conversations.value = data.data ?? [];
+            // Apply presence-based online status on top of API data
+            updateConversationsOnlineStatus();
             console.log('Fetched conversations:', conversations.value.length, conversations.value);
         } else {
             console.error('Failed to fetch conversations:', res.status, await res.text());
@@ -865,7 +869,13 @@ watch(
             });
             if (res.ok) {
                 const data = await res.json();
-                currentConversation.value = { id: data.id, other_user: data.other_user };
+                const other = data.other_user;
+                // Prefer presence when available, else API is_online
+                const isOnline = isUserOnline(other.id) || !!other.is_online;
+                currentConversation.value = {
+                    id: data.id,
+                    other_user: { ...other, is_online: isOnline },
+                };
                 selectedConversationId.value = data.id;
                 fetchMessages(data.id);
                 markRead(data.id);
