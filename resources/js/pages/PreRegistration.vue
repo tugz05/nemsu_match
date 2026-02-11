@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { Head } from '@inertiajs/vue3';
-import { Heart, Users, BookOpen, Shield, Sparkles } from 'lucide-vue-next';
+import { Heart, Users, BookOpen, Shield, Sparkles, UserCircle } from 'lucide-vue-next';
 
 defineProps<{
     preRegistrationMode: boolean;
     allowRegistration: boolean;
     preRegisteredCount: number;
+    preRegisteredFemale: number;
+    preRegisteredMale: number;
 }>();
 
 function formatNumber(num: number): string {
@@ -41,6 +43,17 @@ function formatNumber(num: number): string {
                             {{ formatNumber(preRegisteredCount) }} pre‑registered
                         </span>
                         <span class="w-2.5 h-2.5 bg-emerald-300 rounded-full animate-pulse ring-2 ring-white/50" />
+                    </div>
+                    <!-- Gender breakdown -->
+                    <div class="relative flex items-center justify-center gap-4 mt-5">
+                        <div class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/15 backdrop-blur-sm border border-white/25">
+                            <UserCircle class="w-4 h-4 text-pink-200" />
+                            <span class="text-sm font-semibold text-white">{{ formatNumber(preRegisteredFemale) }} Female</span>
+                        </div>
+                        <div class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/15 backdrop-blur-sm border border-white/25">
+                            <UserCircle class="w-4 h-4 text-blue-200" />
+                            <span class="text-sm font-semibold text-white">{{ formatNumber(preRegisteredMale) }} Male</span>
+                        </div>
                     </div>
                 </div>
 

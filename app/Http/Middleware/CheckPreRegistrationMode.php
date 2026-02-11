@@ -41,16 +41,22 @@ class CheckPreRegistrationMode
         $allowRegistration = AppSetting::get('allow_registration', true);
 
         if ($preRegistrationMode || !$allowRegistration) {
+            $baseQuery = \App\Models\User::where('is_admin', false)->where('is_superadmin', false);
+
             // Count pre-registered users (only regular users, not admins)
-            $preRegisteredCount = \App\Models\User::where('is_admin', false)
-                ->where('is_superadmin', false)
-                ->count();
+            $preRegisteredCount = (clone $baseQuery)->count();
+
+            // Count by gender (Female and Male)
+            $preRegisteredFemale = (clone $baseQuery)->where('gender', 'Female')->count();
+            $preRegisteredMale = (clone $baseQuery)->where('gender', 'Male')->count();
 
             // Show pre-registration page for guests
             return Inertia::render('PreRegistration', [
                 'preRegistrationMode' => $preRegistrationMode,
                 'allowRegistration' => $allowRegistration,
                 'preRegisteredCount' => $preRegisteredCount,
+                'preRegisteredFemale' => $preRegisteredFemale,
+                'preRegisteredMale' => $preRegisteredMale,
             ])->toResponse($request);
         }
 
