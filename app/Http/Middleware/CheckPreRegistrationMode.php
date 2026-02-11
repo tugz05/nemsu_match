@@ -46,9 +46,11 @@ class CheckPreRegistrationMode
             // Count pre-registered users (only regular users, not admins)
             $preRegisteredCount = (clone $baseQuery)->count();
 
-            // Count by gender (Female and Male)
+            // Count by gender (Female, Male, Lesbian, Gay)
             $preRegisteredFemale = (clone $baseQuery)->where('gender', 'Female')->count();
             $preRegisteredMale = (clone $baseQuery)->where('gender', 'Male')->count();
+            $preRegisteredLesbian = (clone $baseQuery)->where('gender', 'Lesbian')->count();
+            $preRegisteredGay = (clone $baseQuery)->where('gender', 'Gay')->count();
 
             // Show pre-registration page for guests
             return Inertia::render('PreRegistration', [
@@ -57,6 +59,8 @@ class CheckPreRegistrationMode
                 'preRegisteredCount' => $preRegisteredCount,
                 'preRegisteredFemale' => $preRegisteredFemale,
                 'preRegisteredMale' => $preRegisteredMale,
+                'preRegisteredLesbian' => $preRegisteredLesbian,
+                'preRegisteredGay' => $preRegisteredGay,
             ])->toResponse($request);
         }
 
