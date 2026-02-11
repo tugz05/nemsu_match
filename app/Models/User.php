@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Models\Superadmin\AppSetting;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -47,6 +48,12 @@ class User extends Authenticatable
         'ideal_match_qualities',
         'preferred_courses',
         'profile_completed',
+        'terms_accepted_at',
+        'subscription_plan',
+        'subscription_ends_at',
+        'boost_ends_at',
+        'super_like_count_today',
+        'super_like_reset_at',
         'nemsu_id',
         'is_admin',
         'is_superadmin',
@@ -78,6 +85,10 @@ class User extends Authenticatable
             'two_factor_confirmed_at' => 'datetime',
             'date_of_birth' => 'date',
             'profile_completed' => 'boolean',
+            'terms_accepted_at' => 'datetime',
+            'subscription_ends_at' => 'datetime',
+            'boost_ends_at' => 'datetime',
+            'super_like_reset_at' => 'date',
             'last_seen_at' => 'datetime',
             'is_admin' => 'boolean',
             'is_superadmin' => 'boolean',
@@ -112,6 +123,86 @@ class User extends Authenticatable
         }
 
         return $this->last_seen_at->diffInMinutes(now()) <= static::onlineWithinMinutes();
+    }
+
+    /** Whether freemium / NEMSU Match Plus is enabled (Superadmin toggle). */
+    public static function freemiumEnabled(): bool
+    {
+        return (bool) AppSetting::get('freemium_enabled', false);
+    }
+
+    /** Whether this user has an active Plus subscription. */
+    public function isPlus(): bool
+    {
+        if ($this->subscription_plan !== 'plus') {
+            return false;
+        }
+        if ($this->subscription_ends_at === null) {
+            return true;
+        }
+        return $this->subscription_ends_at->isFuture();
+    }
+
+    /** Daily likes limit for this user (when freemium is on). */
+    public function getDailyLikesLimit(): int
+    {
+        if (! static::freemiumEnabled()) {
+            return (int) AppSetting::get('plus_daily_likes_limit', 999);
+        }
+        return $this->isPlus()
+            ? (int) AppSetting::get('plus_daily_likes_limit', 999)
+            : (int) AppSetting::get('free_daily_likes_limit', 20);
+    }
+
+    /** Number of like-intent swipes (dating, friend, study_buddy) performed today. */
+    public function getTodayLikesCount(): int
+    {
+        $today = now()->startOfDay();
+        return $this->swipeActions()
+            ->whereIn('intent', [SwipeAction::INTENT_DATING, SwipeAction::INTENT_FRIEND, SwipeAction::INTENT_STUDY_BUDDY])
+            ->where('updated_at', '>=', $today)
+            ->count();
+    }
+
+    /** Remaining likes available today (when freemium on). */
+    public function getRemainingLikesToday(): int
+    {
+        $limit = $this->getDailyLikesLimit();
+        $used = $this->getTodayLikesCount();
+        return max(0, $limit - $used);
+    }
+
+    /** Whether this user can use a Super Like today (Plus only, 1/day when freemium on). */
+    public function canSuperLikeToday(): bool
+    {
+        if (! static::freemiumEnabled() || ! $this->isPlus()) {
+            return false;
+        }
+        $today = now()->toDateString();
+        if ($this->super_like_reset_at !== $today) {
+            return true;
+        }
+        return $this->super_like_count_today < 1;
+    }
+
+    /** Record use of today's Super Like (call after applying a super like). */
+    public function useSuperLike(): void
+    {
+        $today = now()->toDateString();
+        if ($this->super_like_reset_at !== $today) {
+            $this->update([
+                'super_like_count_today' => 1,
+                'super_like_reset_at' => $today,
+            ]);
+        } else {
+            $this->increment('super_like_count_today');
+        }
+    }
+
+    /** Whether this user's profile is currently boosted. */
+    public function isBoosted(): bool
+    {
+        return $this->boost_ends_at !== null && $this->boost_ends_at->isFuture();
     }
 
     /**

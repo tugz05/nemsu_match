@@ -2,11 +2,13 @@
 
 namespace App\Providers;
 
+use App\Models\Superadmin\AppSetting;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Vite;
+use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 
@@ -27,6 +29,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
         $this->configureVitePreload();
+        $this->shareBrandingWithViews();
 
         // When APP_URL is HTTPS (e.g. ngrok), force all generated URLs to HTTPS to avoid mixed content
         $appUrl = config('app.url');
@@ -67,5 +70,19 @@ class AppServiceProvider extends ServiceProvider
                 ->uncompromised()
             : null
         );
+    }
+
+    /**
+     * Share branding (app logo, header icon) with all views for favicon and layout use.
+     */
+    protected function shareBrandingWithViews(): void
+    {
+        $logoPath = AppSetting::get('app_logo', '');
+        $headerIconPath = AppSetting::get('header_icon', '');
+
+        View::share('branding', [
+            'app_logo_url' => $logoPath ? asset('storage/' . ltrim($logoPath, '/')) : null,
+            'header_icon_url' => $headerIconPath ? asset('storage/' . ltrim($headerIconPath, '/')) : null,
+        ]);
     }
 }

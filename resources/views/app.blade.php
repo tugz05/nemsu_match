@@ -34,8 +34,16 @@
 
         <title inertia>{{ config('app.name', 'Laravel') }}</title>
 
-        <link rel="icon" href="/favicon.ico" sizes="any">
-        <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+        @if(!empty($branding['header_icon_url']))
+            @if(str_ends_with(parse_url($branding['header_icon_url'], PHP_URL_PATH), '.svg'))
+                <link rel="icon" href="{{ $branding['header_icon_url'] }}" type="image/svg+xml">
+            @else
+                <link rel="icon" href="{{ $branding['header_icon_url'] }}" type="image/png">
+            @endif
+        @else
+            <link rel="icon" href="/favicon.ico" sizes="any">
+            <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+        @endif
         <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
         <link rel="preconnect" href="https://fonts.bunny.net">

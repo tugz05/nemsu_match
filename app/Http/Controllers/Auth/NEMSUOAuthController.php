@@ -118,6 +118,11 @@ class NEMSUOAuthController extends Controller
                 return redirect()->route('profile.setup')->with('success', 'Welcome! Please complete your profile to continue.');
             }
 
+            // Check if terms have been accepted (required before using the app)
+            if (!$user->terms_accepted_at) {
+                return redirect()->route('consent.show');
+            }
+
             // Main route when authenticated: Browse (preferences-based list of users)
             return redirect()->route('browse')->with('success', 'Welcome back, ' . ($user->display_name ?? $user->name) . '!');
 

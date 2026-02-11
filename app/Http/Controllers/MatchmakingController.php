@@ -8,6 +8,7 @@ use App\Models\UserMatch;
 use App\Models\Notification;
 use App\Models\SwipeAction;
 use App\Models\User;
+use App\Models\Superadmin\AppSetting;
 use App\Services\MatchmakingService;
 use App\Services\DiscoverMatchmakingService;
 use Illuminate\Http\Request;
@@ -82,8 +83,8 @@ class MatchmakingController extends Controller
     }
 
     /**
-     * GET /api/matchmaking/discover?page=1
-     * Discover suggestions (random feed).
+     * GET /api/matchmaking/discover?page=1&campus=&academic_program=&year_level=
+     * Discover suggestions (random feed). Optional filters for Plus when freemium on. Boosted users appear first.
      */
     public function discover(Request $request)
     {
@@ -94,7 +95,21 @@ class MatchmakingController extends Controller
         }
 
         $page = max(1, (int) $request->input('page', 1));
-        $paginator = $this->discoverMatchmaking->getMatches($user, $page);
+        $filters = [];
+        $applyBoost = false;
+        if (User::freemiumEnabled() && $user->isPlus()) {
+            if ($request->filled('campus')) {
+                $filters['campus'] = $request->input('campus');
+            }
+            if ($request->filled('academic_program')) {
+                $filters['academic_program'] = $request->input('academic_program');
+            }
+            if ($request->filled('year_level')) {
+                $filters['year_level'] = $request->input('year_level');
+            }
+            $applyBoost = true;
+        }
+        $paginator = $this->discoverMatchmaking->getMatches($user, $page, $filters, $applyBoost);
 
         $data = collect($paginator->items())->map(function (array $item): array {
             $u = $item['user'];
@@ -128,6 +143,15 @@ class MatchmakingController extends Controller
             return $out;
         })->values()->all();
 
+        $freemium = [
+            'freemium_enabled' => User::freemiumEnabled(),
+            'is_plus' => $user->isPlus(),
+            'remaining_likes_today' => $user->getRemainingLikesToday(),
+            'daily_likes_limit' => $user->getDailyLikesLimit(),
+            'can_super_like_today' => $user->canSuperLikeToday(),
+            'plus_monthly_price' => (int) AppSetting::get('plus_monthly_price', 49),
+        ];
+
         return response()->json([
             'feed' => 'discover_random',
             'data' => $data,
@@ -135,6 +159,7 @@ class MatchmakingController extends Controller
             'last_page' => $paginator->lastPage(),
             'per_page' => $paginator->perPage(),
             'total' => $paginator->total(),
+            'freemium' => $freemium,
         ]);
     }
 
@@ -181,6 +206,28 @@ class MatchmakingController extends Controller
     }
 
     /**
+     * GET /api/matchmaking/freemium-state
+     * Returns freemium flag and user's subscription state for the frontend.
+     */
+    public function freemiumState(Request $request)
+    {
+        $user = Auth::user();
+        $enabled = User::freemiumEnabled();
+        $isPlus = $user->isPlus();
+        $limit = $user->getDailyLikesLimit();
+        $remaining = $enabled ? $user->getRemainingLikesToday() : $limit;
+
+        return response()->json([
+            'freemium_enabled' => $enabled,
+            'is_plus' => $isPlus,
+            'remaining_likes_today' => $remaining,
+            'daily_likes_limit' => $limit,
+            'can_super_like_today' => $user->canSuperLikeToday(),
+            'plus_monthly_price' => (int) AppSetting::get('plus_monthly_price', 49),
+        ]);
+    }
+
+    /**
      * POST /api/matchmaking/action
      * Record swipe action (dating, friend, study_buddy, ignored). Follows on like. Returns matched: true if mutual like.
      */
@@ -199,10 +246,25 @@ class MatchmakingController extends Controller
             return response()->json(['message' => 'Invalid target.'], 422);
         }
 
+        // Freemium: enforce daily like limit for non-Plus users
+        if (SwipeAction::isLikeIntent($intent) && User::freemiumEnabled() && ! $me->isPlus()) {
+            $remaining = $me->getRemainingLikesToday();
+            if ($remaining <= 0) {
+                return response()->json([
+                    'message' => 'Daily like limit reached. Upgrade to NEMSU Match Plus for unlimited likes.',
+                    'code' => 'daily_limit_reached',
+                ], 403);
+            }
+        }
+
         SwipeAction::updateOrCreate(
             ['user_id' => $me->id, 'target_user_id' => $targetId],
             ['intent' => $intent]
         );
+
+        if ($request->boolean('super_like') && SwipeAction::isLikeIntent($intent) && $me->canSuperLikeToday()) {
+            $me->useSuperLike();
+        }
 
         $matched = false;
         $otherUser = null;
@@ -349,10 +411,17 @@ class MatchmakingController extends Controller
     /**
      * GET /api/matchmaking/who-liked-me?page=1&intent=dating|friend|study_buddy
      * Users who liked you (heart/smile/study buddy) and you haven't liked back yet — for match-back.
+     * Plus only when freemium is ON.
      */
     public function whoLikedMe(Request $request)
     {
         $me = Auth::user();
+        if (User::freemiumEnabled() && ! $me->isPlus()) {
+            return response()->json([
+                'message' => 'Upgrade to NEMSU Match Plus to see who liked you.',
+                'code' => 'plus_required',
+            ], 403);
+        }
         $page = max(1, (int) $request->input('page', 1));
         $perPage = 20;
         $intentFilter = $request->input('intent');
@@ -415,11 +484,12 @@ class MatchmakingController extends Controller
 
     /**
      * GET /api/matchmaking/who-liked-me-count
-     * Count of users who liked you (match-back) and you haven't liked back yet. Used for Discover badge.
+     * Count of users who liked you (match-back) and you haven't liked back yet. When freemium on and not Plus, returns locked: true.
      */
     public function whoLikedMeCount()
     {
         $me = Auth::user();
+        $locked = User::freemiumEnabled() && ! $me->isPlus();
         $userIdsWhoLikedMe = SwipeAction::query()
             ->where('target_user_id', $me->id)
             ->whereIn('intent', [SwipeAction::INTENT_DATING, SwipeAction::INTENT_FRIEND, SwipeAction::INTENT_STUDY_BUDDY])
@@ -437,7 +507,10 @@ class MatchmakingController extends Controller
             ->pluck('target_user_id')
             ->count();
         $count = count($userIdsWhoLikedMe) - $likedBackCount;
-        return response()->json(['count' => max(0, $count)]);
+        return response()->json([
+            'count' => max(0, $count),
+            'locked' => $locked,
+        ]);
     }
 
     /**

@@ -11,6 +11,7 @@ use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PostController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ConsentController;
 use App\Http\Controllers\ProfileSetupController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Auth;
@@ -38,6 +39,10 @@ Route::middleware(['auth'])->group(function () {
     Route::get('profile/setup', [ProfileSetupController::class, 'show'])->name('profile.setup');
     Route::post('profile/setup', [ProfileSetupController::class, 'store'])->name('profile.store');
     Route::put('profile/setup', [ProfileSetupController::class, 'update'])->name('profile-setup.update');
+
+    // Consent & Terms (after profile setup, before app access)
+    Route::get('consent', [ConsentController::class, 'show'])->name('consent.show');
+    Route::post('consent', [ConsentController::class, 'accept'])->name('consent.accept');
 
     // Autocomplete API endpoints
     Route::get('api/autocomplete/academic-programs', [AutocompleteController::class, 'academicPrograms'])->name('api.autocomplete.programs');
@@ -68,6 +73,16 @@ Route::get('like-you', function () {
 Route::get('browse', function () {
     return Inertia::render('Browse');
 })->middleware(['auth', 'verified', 'profile.completed'])->name('browse');
+
+// NEMSU Match Plus - Upgrade page (subscription)
+Route::get('plus', function () {
+    $price = \App\Models\Superadmin\AppSetting::get('plus_monthly_price', 49);
+    $freemiumEnabled = \App\Models\User::freemiumEnabled();
+    return Inertia::render('Plus', [
+        'plus_monthly_price' => (int) $price,
+        'freemium_enabled' => $freemiumEnabled,
+    ]);
+})->middleware(['auth', 'verified', 'profile.completed'])->name('plus');
 
 // Announcements
 Route::get('announcements', function () {
@@ -127,6 +142,7 @@ Route::middleware(['auth', 'verified', 'profile.completed'])->group(function () 
     Route::post('api/users/{user}/report', [UserController::class, 'report'])->name('users.report');
     Route::get('api/matchmaking', [MatchmakingController::class, 'index'])->name('matchmaking.index');
     Route::get('api/matchmaking/discover', [MatchmakingController::class, 'discover'])->name('matchmaking.discover');
+    Route::get('api/matchmaking/freemium-state', [MatchmakingController::class, 'freemiumState'])->name('matchmaking.freemium-state');
     Route::get('api/matchmaking/likes', [MatchmakingController::class, 'likes'])->name('matchmaking.likes');
     Route::get('api/matchmaking/who-liked-me-count', [MatchmakingController::class, 'whoLikedMeCount'])->name('matchmaking.who-liked-me-count');
     Route::get('api/matchmaking/who-liked-me', [MatchmakingController::class, 'whoLikedMe'])->name('matchmaking.who-liked-me');
@@ -247,6 +263,7 @@ Route::middleware(['auth', 'verified', 'superadmin'])->prefix('superadmin')->nam
     Route::put('settings/{appSetting}', [\App\Http\Controllers\Superadmin\SettingsController::class, 'update'])->name('settings.update');
     Route::delete('settings/{appSetting}', [\App\Http\Controllers\Superadmin\SettingsController::class, 'destroy'])->name('settings.destroy');
     Route::post('settings/bulk-update', [\App\Http\Controllers\Superadmin\SettingsController::class, 'bulkUpdate'])->name('settings.bulk-update');
+    Route::post('settings/upload-branding', [\App\Http\Controllers\Superadmin\SettingsController::class, 'uploadBranding'])->name('settings.upload-branding');
 });
 
 // Admin routes (for regular admins and editors)

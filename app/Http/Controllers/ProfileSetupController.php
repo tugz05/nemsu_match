@@ -122,7 +122,7 @@ class ProfileSetupController extends Controller
 
         \Log::info('Profile updated successfully', ['user_id' => $user->id]);
 
-        return redirect()->route('browse')->with('success', 'Profile completed successfully!');
+        return redirect()->route('consent.show')->with('success', 'Profile completed! Please accept the terms to continue.');
     }
 
     /**

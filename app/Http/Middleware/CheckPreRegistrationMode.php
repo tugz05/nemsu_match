@@ -30,6 +30,8 @@ class CheckPreRegistrationMode
             || $request->routeIs('profile.setup')
             || $request->routeIs('profile.store')
             || $request->routeIs('profile-setup.update')
+            || $request->routeIs('consent.show')
+            || $request->routeIs('consent.accept')
         ) {
             return $next($request);
         }

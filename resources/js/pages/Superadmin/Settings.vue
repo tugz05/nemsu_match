@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { Head, router } from '@inertiajs/vue3';
-import { Settings as SettingsIcon, Save, Power, UserCheck, MessageSquare, Video, Heart, Zap } from 'lucide-vue-next';
+import { Settings as SettingsIcon, Save, Power, UserCheck, MessageSquare, Video, Heart, Zap, Image } from 'lucide-vue-next';
 import SuperadminLayout from './Layout.vue';
 import { useCsrfToken } from '@/composables/useCsrfToken';
 
@@ -18,14 +18,45 @@ interface GroupedSettings {
     [group: string]: Setting[];
 }
 
+interface Branding {
+    app_logo_url: string | null;
+    header_icon_url: string | null;
+}
+
 const props = defineProps<{
     settings: GroupedSettings;
+    branding: Branding;
 }>();
 
 const getCsrfToken = useCsrfToken();
 const localSettings = ref<GroupedSettings>(JSON.parse(JSON.stringify(props.settings)));
+const brandingUrls = ref<Branding>({ ...props.branding });
 const saving = ref(false);
 const successMessage = ref('');
+const uploadingLogo = ref(false);
+const uploadingHeaderIcon = ref(false);
+
+// Exclude branding and freemium from generic list (they have dedicated sections)
+const settingsWithoutBranding = computed(() => {
+    const out: GroupedSettings = {};
+    for (const [group, settings] of Object.entries(localSettings.value)) {
+        if (group === 'branding' || group === 'freemium') continue;
+        out[group] = settings;
+    }
+    return out;
+});
+
+const freemiumSettings = computed(() => localSettings.value.freemium ?? []);
+function getFreemiumSetting(key: string): Setting | undefined {
+    return freemiumSettings.value.find((s: Setting) => s.key === key);
+}
+function toggleFreemiumEnabled() {
+    const s = getFreemiumSetting('freemium_enabled');
+    if (s) {
+        s.value = !s.value;
+        saveSetting(s);
+    }
+}
 
 function getIcon(key: string) {
     switch (key) {
@@ -45,7 +76,48 @@ function getBadgeColor(group: string): string {
         case 'general': return 'bg-purple-100 text-purple-700';
         case 'users': return 'bg-blue-100 text-blue-700';
         case 'features': return 'bg-green-100 text-green-700';
+        case 'branding': return 'bg-amber-100 text-amber-700';
+        case 'freemium': return 'bg-pink-100 text-pink-700';
         default: return 'bg-gray-100 text-gray-700';
+    }
+}
+
+async function uploadBranding(type: 'logo' | 'header_icon', file: File) {
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (ext !== 'png' && ext !== 'svg') {
+        alert('Only PNG and SVG files are allowed.');
+        return;
+    }
+    if (type === 'logo') uploadingLogo.value = true;
+    else uploadingHeaderIcon.value = true;
+    try {
+        const formData = new FormData();
+        formData.append('type', type === 'logo' ? 'logo' : 'header_icon');
+        formData.append('file', file);
+        const res = await fetch('/superadmin/settings/upload-branding', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'X-CSRF-TOKEN': getCsrfToken(),
+                Accept: 'application/json',
+            },
+            body: formData,
+        });
+        const data = await res.json();
+        if (res.ok) {
+            if (type === 'logo') brandingUrls.value.app_logo_url = data.url;
+            else brandingUrls.value.header_icon_url = data.url;
+            successMessage.value = 'Branding updated successfully';
+            setTimeout(() => { successMessage.value = ''; }, 3000);
+        } else {
+            alert(data.message || 'Upload failed');
+        }
+    } catch (e) {
+        console.error(e);
+        alert('Upload failed');
+    } finally {
+        if (type === 'logo') uploadingLogo.value = false;
+        else uploadingHeaderIcon.value = false;
     }
 }
 
@@ -165,10 +237,100 @@ async function saveAllSettings() {
                 </div>
             </Transition>
 
+            <!-- Freemium: NEMSU Match Plus toggle -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+                <div class="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                    <div class="flex items-center gap-3">
+                        <span class="px-3 py-1 rounded-full text-xs font-semibold capitalize bg-pink-100 text-pink-700">Freemium</span>
+                        <h2 class="text-lg font-bold text-gray-900">NEMSU Match Plus</h2>
+                    </div>
+                </div>
+                <div class="p-6">
+                    <p class="text-sm text-gray-600 mb-4">When <strong>ON</strong>, free users get limited daily likes; Plus subscribers get unlimited likes, see who liked you, boost, and extra filters.</p>
+                    <div class="flex items-center justify-between gap-4">
+                        <span class="font-medium text-gray-900">Enable Freemium / Plus features</span>
+                        <button
+                            v-if="getFreemiumSetting('freemium_enabled')"
+                            type="button"
+                            @click="toggleFreemiumEnabled"
+                            :class="['relative w-14 h-7 rounded-full transition-colors duration-200', getFreemiumSetting('freemium_enabled')?.value ? 'bg-gradient-to-r from-pink-500 to-rose-500' : 'bg-gray-300']"
+                        >
+                            <span
+                                :class="['absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200', getFreemiumSetting('freemium_enabled')?.value ? 'left-8' : 'left-1']"
+                            />
+                        </button>
+                    </div>
+                    <div v-if="getFreemiumSetting('freemium_enabled')?.value" class="mt-4 pt-4 border-t border-gray-100 grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                            <span class="text-gray-500">Plus price (₱/month)</span>
+                            <p class="font-semibold">{{ getFreemiumSetting('plus_monthly_price')?.value ?? 49 }}</p>
+                        </div>
+                        <div>
+                            <span class="text-gray-500">Free daily likes</span>
+                            <p class="font-semibold">{{ getFreemiumSetting('free_daily_likes_limit')?.value ?? 20 }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Branding: App Logo & Header Icon -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+                <div class="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                    <div class="flex items-center gap-3">
+                        <span class="px-3 py-1 rounded-full text-xs font-semibold capitalize bg-amber-100 text-amber-700">Branding</span>
+                        <h2 class="text-lg font-bold text-gray-900">App Logo & Header Icon</h2>
+                    </div>
+                </div>
+                <div class="p-6 grid sm:grid-cols-2 gap-6">
+                    <!-- App Logo -->
+                    <div class="border-2 border-dashed border-gray-200 rounded-2xl p-6 flex flex-col items-center justify-center min-h-[200px] bg-gray-50/50">
+                        <p class="text-sm font-semibold text-gray-700 mb-3">App Logo</p>
+                        <div v-if="brandingUrls.app_logo_url" class="mb-3 max-h-24 flex items-center justify-center">
+                            <img :src="brandingUrls.app_logo_url" alt="App logo" class="max-h-24 w-auto object-contain" />
+                        </div>
+                        <div v-else class="mb-3 w-20 h-20 rounded-xl bg-gray-200 flex items-center justify-center">
+                            <Image class="w-10 h-10 text-gray-400" />
+                        </div>
+                        <p class="text-xs text-gray-500 mb-3">PNG or SVG only</p>
+                        <label class="cursor-pointer px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl transition-colors">
+                            <input
+                                type="file"
+                                accept=".png,.svg,image/png,image/svg+xml"
+                                class="hidden"
+                                :disabled="uploadingLogo"
+                                @change="(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) uploadBranding('logo', f); (e.target as HTMLInputElement).value = ''; }"
+                            />
+                            {{ uploadingLogo ? 'Uploading…' : 'Choose file' }}
+                        </label>
+                    </div>
+                    <!-- Header Icon -->
+                    <div class="border-2 border-dashed border-gray-200 rounded-2xl p-6 flex flex-col items-center justify-center min-h-[200px] bg-gray-50/50">
+                        <p class="text-sm font-semibold text-gray-700 mb-3">Header Icon</p>
+                        <div v-if="brandingUrls.header_icon_url" class="mb-3 max-h-16 flex items-center justify-center">
+                            <img :src="brandingUrls.header_icon_url" alt="Header icon" class="max-h-16 w-auto object-contain" />
+                        </div>
+                        <div v-else class="mb-3 w-16 h-16 rounded-xl bg-gray-200 flex items-center justify-center">
+                            <Image class="w-8 h-8 text-gray-400" />
+                        </div>
+                        <p class="text-xs text-gray-500 mb-3">PNG or SVG only</p>
+                        <label class="cursor-pointer px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl transition-colors">
+                            <input
+                                type="file"
+                                accept=".png,.svg,image/png,image/svg+xml"
+                                class="hidden"
+                                :disabled="uploadingHeaderIcon"
+                                @change="(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) uploadBranding('header_icon', f); (e.target as HTMLInputElement).value = ''; }"
+                            />
+                            {{ uploadingHeaderIcon ? 'Uploading…' : 'Choose file' }}
+                        </label>
+                    </div>
+                </div>
+            </div>
+
             <!-- Settings Groups -->
             <div class="space-y-6">
                 <div
-                    v-for="(groupSettings, groupName) in localSettings"
+                    v-for="(groupSettings, groupName) in settingsWithoutBranding"
                     :key="groupName"
                     class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden"
                 >

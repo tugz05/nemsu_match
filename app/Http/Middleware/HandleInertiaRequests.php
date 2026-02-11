@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\Superadmin\AppSetting;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -35,13 +36,27 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
+        $logoPath = AppSetting::get('app_logo', '');
+        $headerIconPath = AppSetting::get('header_icon', '');
+        $user = $request->user();
+        $freemiumEnabled = $user && \App\Models\User::freemiumEnabled();
+        $isPlus = $user && $user->isPlus();
+
         return [
             ...parent::share($request),
             'name' => config('app.name'),
             'auth' => [
-                'user' => $request->user(),
+                'user' => $user,
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
+            'branding' => [
+                'app_logo_url' => $logoPath ? asset('storage/' . ltrim($logoPath, '/')) : null,
+                'header_icon_url' => $headerIconPath ? asset('storage/' . ltrim($headerIconPath, '/')) : null,
+            ],
+            'subscription' => [
+                'freemium_enabled' => $freemiumEnabled,
+                'is_plus' => $isPlus,
+            ],
         ];
     }
 }

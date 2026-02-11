@@ -7,11 +7,17 @@ use App\Models\Superadmin\AppSetting;
 use App\Events\MaintenanceModeChanged;
 use App\Events\PreRegistrationModeChanged;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class SettingsController extends Controller
 {
+    private const BRANDING_DISK = 'public';
+    private const BRANDING_DIR = 'branding';
+    private const ALLOWED_MIMES = ['image/png', 'image/svg+xml'];
+    private const ALLOWED_EXTENSIONS = ['png', 'svg'];
+
     /**
      * Show settings page
      */
@@ -19,8 +25,17 @@ class SettingsController extends Controller
     {
         $settings = AppSetting::getAllGrouped();
 
+        $logoPath = AppSetting::get('app_logo', '');
+        $headerIconPath = AppSetting::get('header_icon', '');
+
+        $branding = [
+            'app_logo_url' => $logoPath ? asset('storage/' . ltrim($logoPath, '/')) : null,
+            'header_icon_url' => $headerIconPath ? asset('storage/' . ltrim($headerIconPath, '/')) : null,
+        ];
+
         return Inertia::render('Superadmin/Settings', [
             'settings' => $settings,
+            'branding' => $branding,
         ]);
     }
 
@@ -164,6 +179,43 @@ class SettingsController extends Controller
 
         return response()->json([
             'message' => 'Settings updated successfully',
+        ]);
+    }
+
+    /**
+     * Upload branding asset (app logo or header icon). PNG and SVG only.
+     */
+    public function uploadBranding(Request $request)
+    {
+        $request->validate([
+            'type' => 'required|in:logo,header_icon',
+            'file' => 'required|file|mimes:png,svg|mimetypes:image/png,image/svg+xml|max:2048',
+        ]);
+
+        $file = $request->file('file');
+        $ext = strtolower($file->getClientOriginalExtension());
+
+        if (!in_array($ext, self::ALLOWED_EXTENSIONS, true)) {
+            return response()->json([
+                'message' => 'Only PNG and SVG files are allowed.',
+            ], 422);
+        }
+
+        $key = $request->input('type') === 'logo' ? 'app_logo' : 'header_icon';
+        $filename = $request->input('type') === 'logo' ? 'logo.' . $ext : 'header-icon.' . $ext;
+        $path = self::BRANDING_DIR . '/' . $filename;
+
+        Storage::disk(self::BRANDING_DISK)->putFileAs(self::BRANDING_DIR, $file, $filename);
+
+        AppSetting::set($key, $path);
+        AppSetting::clearCache();
+
+        $url = asset('storage/' . $path);
+
+        return response()->json([
+            'message' => 'File uploaded successfully.',
+            'url' => $url,
+            'path' => $path,
         ]);
     }
 }

@@ -69,7 +69,16 @@ interface MutualMatchUser {
     intent?: string;
 }
 
-type DiscoverTab = 'discover' | 'recent' | 'matches';
+type DiscoverTab = 'discover' | 'recent' | 'likes_you' | 'matches';
+
+interface FreemiumState {
+    freemium_enabled: boolean;
+    is_plus: boolean;
+    remaining_likes_today: number;
+    daily_likes_limit: number;
+    can_super_like_today: boolean;
+    plus_monthly_price: number;
+}
 
 interface MatchedUserForModal {
     id: number;
@@ -93,16 +102,42 @@ const lastPage = ref(1);
 const total = ref(0);
 const followLoading = ref<number | null>(null);
 
-// Main tabs: Discover (swipe) | Recent (who liked you) | Matches
+// Main tabs: Discover (swipe) | Recent (my likes) | Likes you (who liked me) | Matches
 const activeTab = ref<DiscoverTab>('discover');
 
-// Recent: who liked me (you haven't liked back)
+// Freemium state (from discover response or freemium-state API)
+const freemium = ref<FreemiumState>({
+    freemium_enabled: false,
+    is_plus: true,
+    remaining_likes_today: 999,
+    daily_likes_limit: 999,
+    can_super_like_today: false,
+    plus_monthly_price: 49,
+});
+
+// Discover filters (Plus only when freemium on)
+const filterCampus = ref('');
+const filterProgram = ref('');
+const filterYear = ref('');
+const showFilterPanel = ref(false);
+
+// Recent: my recent likes (users I liked)
 const whoLikedMeList = ref<WhoLikedMeUser[]>([]);
 const whoLikedMeLoading = ref(false);
 const whoLikedMeLoadingMore = ref(false);
 const whoLikedMePage = ref(1);
 const whoLikedMeLastPage = ref(1);
 const matchBackActionUserId = ref<number | null>(null);
+
+// Likes you: who liked me (Plus only when freemium on)
+const likesYouList = ref<WhoLikedMeUser[]>([]);
+const likesYouCount = ref(0);
+const likesYouCountLocked = ref(false);
+const likesYouLoading = ref(false);
+const likesYouLoadingMore = ref(false);
+const likesYouPage = ref(1);
+const likesYouLastPage = ref(1);
+const likesYouActionUserId = ref<number | null>(null);
 
 // Matches: mutual matches
 const mutualList = ref<MutualMatchUser[]>([]);
@@ -143,6 +178,15 @@ const EXIT_DURATION_MS = 380;
 
 const currentProfile = computed(() => profiles.value[currentIndex.value] ?? null);
 const nextProfileInStack = computed(() => profiles.value[currentIndex.value + 1] ?? null);
+
+const atLikesLimit = computed(() =>
+    freemium.value.freemium_enabled && !freemium.value.is_plus && freemium.value.remaining_likes_today <= 0,
+);
+const canLike = computed(() => !atLikesLimit.value);
+const likesLabel = computed(() => {
+    if (!freemium.value.freemium_enabled || freemium.value.is_plus) return null;
+    return `${freemium.value.remaining_likes_today}/${freemium.value.daily_likes_limit} likes today`;
+});
 
 const cardStyle = computed(() => {
     if (isExiting.value && exitDirection.value) {
@@ -197,9 +241,20 @@ const interestBadges = computed(() => {
     return combined.slice(0, 6);
 });
 
+function buildDiscoverUrl(page: number): string {
+    const params = new URLSearchParams();
+    params.set('page', String(page));
+    params.set('_ts', String(Date.now()));
+    if (freemium.value.freemium_enabled && freemium.value.is_plus) {
+        if (filterCampus.value) params.set('campus', filterCampus.value);
+        if (filterProgram.value) params.set('academic_program', filterProgram.value);
+        if (filterYear.value) params.set('year_level', filterYear.value);
+    }
+    return `/api/matchmaking/discover?${params.toString()}`;
+}
+
 async function fetchMatches(page: number) {
-    // Avoid cached GET responses so random feed changes between requests.
-    const res = await fetch(`/api/matchmaking/discover?page=${page}&_ts=${Date.now()}`, {
+    const res = await fetch(buildDiscoverUrl(page), {
         credentials: 'same-origin',
         headers: { 'X-CSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
         cache: 'no-store',
@@ -219,7 +274,21 @@ async function fetchMatches(page: number) {
     currentPage.value = data.current_page ?? 1;
     lastPage.value = data.last_page ?? 1;
     total.value = data.total ?? 0;
+    if (data.freemium) {
+        freemium.value = { ...freemium.value, ...data.freemium };
+    }
     loading.value = false;
+}
+
+async function fetchFreemiumState() {
+    const res = await fetch('/api/matchmaking/freemium-state', {
+        credentials: 'same-origin',
+        headers: { 'X-CSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
+    });
+    if (res.ok) {
+        const data = await res.json();
+        freemium.value = { ...freemium.value, ...data };
+    }
 }
 
 async function loadMore() {
@@ -250,6 +319,41 @@ async function fetchWhoLikedMe(page = 1) {
     }
 }
 
+async function fetchLikesYouCount() {
+    const res = await fetch('/api/matchmaking/who-liked-me-count', {
+        credentials: 'same-origin',
+        headers: { 'X-CSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    likesYouCount.value = data.count ?? 0;
+    likesYouCountLocked.value = data.locked === true;
+}
+
+async function fetchLikesYou(page = 1) {
+    if (page > 1) likesYouLoadingMore.value = true;
+    else likesYouLoading.value = true;
+    try {
+        const res = await fetch(`/api/matchmaking/who-liked-me?page=${page}`, {
+            credentials: 'same-origin',
+            headers: { 'X-CSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
+        });
+        if (!res.ok) {
+            if (res.status === 403) return;
+            return;
+        }
+        const data = await res.json();
+        const items = (data.data ?? []) as WhoLikedMeUser[];
+        if (page === 1) likesYouList.value = items;
+        else likesYouList.value = [...likesYouList.value, ...items];
+        likesYouPage.value = data.current_page ?? page;
+        likesYouLastPage.value = data.last_page ?? page;
+    } finally {
+        likesYouLoading.value = false;
+        likesYouLoadingMore.value = false;
+    }
+}
+
 async function fetchMutual(page = 1) {
     if (page > 1) mutualLoadingMore.value = true;
     else mutualLoading.value = true;
@@ -274,6 +378,10 @@ async function fetchMutual(page = 1) {
 function setTab(tab: DiscoverTab) {
     activeTab.value = tab;
     if (tab === 'recent' && whoLikedMeList.value.length === 0 && !whoLikedMeLoading.value) fetchWhoLikedMe(1);
+    if (tab === 'likes_you') {
+        if (freemium.value.freemium_enabled && !freemium.value.is_plus) fetchLikesYouCount();
+        else if (likesYouList.value.length === 0 && !likesYouLoading.value) fetchLikesYou(1);
+    }
     if (tab === 'matches' && mutualList.value.length === 0 && !mutualLoading.value) fetchMutual(1);
 }
 
@@ -347,6 +455,27 @@ async function pass(user: WhoLikedMeUser) {
     }
 }
 
+async function matchBackLikesYou(user: WhoLikedMeUser) {
+    likesYouActionUserId.value = user.id;
+    try {
+        const res = await fetch('/api/matchmaking/action', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'X-CSRF-TOKEN': getCsrfToken(),
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ target_user_id: user.id, intent: user.their_intent ?? 'dating' }),
+        });
+        const data = await res.json();
+        likesYouList.value = likesYouList.value.filter((u) => u.id !== user.id);
+        if (data.matched && data.other_user) matchModalUser.value = data.other_user;
+    } finally {
+        likesYouActionUserId.value = null;
+    }
+}
+
 function openProfileForMatch(id: number) {
     router.visit(`/profile/${id}`);
 }
@@ -382,11 +511,21 @@ function openChat(userId?: number) {
 }
 
 /** Submit swipe action to API; if matched, show modal. Does NOT advance index (caller does that after animation). */
-async function submitAction(targetUserId: number, intent: 'dating' | 'friend' | 'study_buddy' | 'ignored') {
+async function submitAction(
+    targetUserId: number,
+    intent: 'dating' | 'friend' | 'study_buddy' | 'ignored',
+    superLike = false,
+) {
     if (followLoading.value !== null) return;
+    if (atLikesLimit.value && intent !== 'ignored') return;
 
     followLoading.value = targetUserId;
     try {
+        const body: { target_user_id: number; intent: string; super_like?: boolean } = {
+            target_user_id: targetUserId,
+            intent,
+        };
+        if (superLike && freemium.value.can_super_like_today) body.super_like = true;
         const res = await fetch('/api/matchmaking/action', {
             method: 'POST',
             credentials: 'same-origin',
@@ -395,12 +534,20 @@ async function submitAction(targetUserId: number, intent: 'dating' | 'friend' | 
                 'X-CSRF-TOKEN': getCsrfToken(),
                 Accept: 'application/json',
             },
-            body: JSON.stringify({ target_user_id: targetUserId, intent }),
+            body: JSON.stringify(body),
         });
         const data = await res.json().catch(() => ({}));
 
+        if (res.status === 403 && data.code === 'daily_limit_reached') {
+            await fetchFreemiumState();
+            return;
+        }
         if (data.matched && data.other_user) {
             matchModalUser.value = data.other_user;
+        }
+        if (res.ok && intent !== 'ignored') {
+            freemium.value.remaining_likes_today = Math.max(0, freemium.value.remaining_likes_today - 1);
+            if (superLike && freemium.value.can_super_like_today) freemium.value.can_super_like_today = false;
         }
     } finally {
         followLoading.value = null;
@@ -441,9 +588,9 @@ function playActionsIntro() {
     }, 520);
 }
 
-function handleDating() {
+function handleDating(superLike = false) {
     const p = currentProfile.value;
-    if (isExiting.value || !p) return;
+    if (isExiting.value || !p || !canLike.value) return;
     triggerButtonFeedback('dating');
     isExiting.value = true;
     exitDirection.value = 'right';
@@ -451,13 +598,13 @@ function handleDating() {
     setTimeout(() => {
         nextProfile();
         resetSwipeState();
-        void submitAction(targetId, 'dating');
+        void submitAction(targetId, 'dating', superLike);
     }, EXIT_DURATION_MS);
 }
 
 function handleFriend() {
     const p = currentProfile.value;
-    if (isExiting.value || !p) return;
+    if (isExiting.value || !p || !canLike.value) return;
     triggerButtonFeedback('friend');
     isExiting.value = true;
     exitDirection.value = 'right';
@@ -471,7 +618,7 @@ function handleFriend() {
 
 function handleStudyBuddy() {
     const p = currentProfile.value;
-    if (isExiting.value || !p) return;
+    if (isExiting.value || !p || !canLike.value) return;
     triggerButtonFeedback('study_buddy');
     isExiting.value = true;
     exitDirection.value = 'right';
@@ -591,13 +738,18 @@ function goBack() {
 }
 
 onMounted(() => {
-    fetchMatches(1);
+    fetchFreemiumState().then(() => fetchMatches(1));
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
-    if (tab === 'match_back' || tab === 'matches') {
-        setTab(tab);
-    }
+    if (tab === 'match_back') setTab('likes_you');
+    else if (tab === 'matches') setTab('matches');
 });
+
+function applyFilters() {
+    showFilterPanel.value = false;
+    loading.value = true;
+    fetchMatches(1);
+}
 
 // When showMatchUser is set (e.g. from notification → like-you?show_match=id), open the match modal (works on first load and when Inertia updates props)
 watch(
@@ -653,13 +805,21 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                 </button>
                 <div class="flex flex-col items-center">
                     <span class="text-base font-bold text-gray-900">Discover</span>
-                    <span class="text-[10px] text-gray-500 font-medium">Swipe to connect</span>
+                    <span v-if="likesLabel" class="text-[10px] text-amber-600 font-medium">{{ likesLabel }}</span>
+                    <span v-else class="text-[10px] text-gray-500 font-medium">Swipe to connect</span>
                 </div>
-                <button type="button" class="p-2 rounded-full hover:bg-accent transition-colors" aria-label="Filter">
+                <button
+                    v-if="freemium.freemium_enabled && freemium.is_plus"
+                    type="button"
+                    class="p-2 rounded-full hover:bg-accent transition-colors"
+                    aria-label="Filter"
+                    @click="showFilterPanel = !showFilterPanel"
+                >
                     <Sparkles class="w-5 h-5 text-primary" />
                 </button>
+                <div v-else class="w-10" />
             </div>
-            <!-- Tabs: Discover | Match-back | Matches -->
+            <!-- Tabs: Discover | Recent | Likes you (when freemium) | Matches -->
             <div class="flex border-t border-gray-100 min-w-0">
                 <button
                     type="button"
@@ -678,6 +838,15 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                     Recent
                 </button>
                 <button
+                    v-if="freemium.freemium_enabled"
+                    type="button"
+                    :class="activeTab === 'likes_you' ? 'border-primary text-primary font-semibold' : 'border-transparent text-muted-foreground hover:text-foreground'"
+                    class="flex-1 min-w-0 py-2.5 text-xs sm:text-sm border-b-2 transition-colors px-1 truncate"
+                    @click="setTab('likes_you')"
+                >
+                    Likes you
+                </button>
+                <button
                     type="button"
                     :class="activeTab === 'matches' ? 'border-primary text-primary font-semibold' : 'border-transparent text-muted-foreground hover:text-foreground'"
                     class="flex-1 min-w-0 py-2.5 text-xs sm:text-sm border-b-2 transition-colors px-1 truncate"
@@ -685,6 +854,22 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                 >
                     Matches
                 </button>
+            </div>
+            <!-- Plus filters (campus, program, year) -->
+            <div v-if="showFilterPanel && freemium.freemium_enabled && freemium.is_plus" class="px-4 py-3 border-t border-gray-100 bg-gray-50 flex flex-wrap gap-3 items-end">
+                <div class="flex-1 min-w-[100px]">
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Campus</label>
+                    <input v-model="filterCampus" type="text" placeholder="Any" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" @keyup.enter="applyFilters" />
+                </div>
+                <div class="flex-1 min-w-[100px]">
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Program</label>
+                    <input v-model="filterProgram" type="text" placeholder="Any" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" @keyup.enter="applyFilters" />
+                </div>
+                <div class="flex-1 min-w-[80px]">
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Year</label>
+                    <input v-model="filterYear" type="text" placeholder="Any" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" @keyup.enter="applyFilters" />
+                </div>
+                <button type="button" class="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90" @click="applyFilters">Apply</button>
             </div>
         </header>
 
@@ -734,6 +919,52 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                     <div v-if="whoLikedMeList.length > 0 && whoLikedMePage < whoLikedMeLastPage" class="p-4 flex justify-center">
                         <button type="button" :disabled="whoLikedMeLoadingMore" class="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium disabled:opacity-50" @click="fetchWhoLikedMe(whoLikedMePage + 1)">{{ whoLikedMeLoadingMore ? 'Loading…' : 'Load more' }}</button>
                     </div>
+                </div>
+            </template>
+
+            <!-- Likes you: who liked me (Plus when freemium on; else upgrade CTA) -->
+            <template v-else-if="activeTab === 'likes_you'">
+                <div class="flex-1 min-h-0 overflow-y-auto bg-gradient-to-br from-pink-50 via-white to-rose-50 pb-6">
+                    <div v-if="freemium.freemium_enabled && !freemium.is_plus" class="flex flex-col items-center justify-center py-16 px-6">
+                        <Heart class="w-14 h-14 mb-3 text-pink-400" />
+                        <p class="text-center font-semibold text-gray-900">{{ likesYouCount }} {{ likesYouCount === 1 ? 'person likes' : 'people like' }} you</p>
+                        <p class="text-sm mt-1 text-center text-gray-600">Upgrade to NEMSU Match Plus to see who and match back.</p>
+                        <a href="/plus" class="mt-6 px-6 py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-semibold shadow-lg hover:opacity-95">Upgrade for ₱{{ freemium.plus_monthly_price }}/mo</a>
+                    </div>
+                    <template v-else>
+                        <div v-if="likesYouLoading && likesYouList.length === 0" class="flex justify-center py-20">
+                            <div class="w-12 h-12 border-4 border-pink-500 border-t-transparent rounded-full animate-spin" />
+                        </div>
+                        <div v-else-if="likesYouList.length === 0" class="flex flex-col items-center justify-center py-20 px-6">
+                            <Heart class="w-14 h-14 mb-3 opacity-50" />
+                            <p class="text-center font-medium">No one has liked you yet</p>
+                            <p class="text-sm mt-1 text-center">Keep swiping — when someone likes you, they’ll show up here.</p>
+                            <button type="button" @click="setTab('discover')" class="mt-4 px-4 py-2 rounded-xl bg-primary text-primary-foreground font-medium text-sm hover:opacity-90">Discover</button>
+                        </div>
+                        <ul v-else class="divide-y divide-gray-100">
+                            <li v-for="u in likesYouList" :key="u.id" class="flex gap-4 px-4 py-3">
+                                <button type="button" @click="openProfileForMatch(u.id)" class="w-16 h-16 rounded-full overflow-hidden bg-gray-100 flex-shrink-0 ring-2 ring-white shadow">
+                                    <img v-if="u.profile_picture" :src="profilePictureSrc(u.profile_picture)" :alt="u.display_name" class="w-full h-full object-cover" />
+                                    <div v-else class="w-full h-full flex items-center justify-center text-pink-600 font-bold text-xl">{{ (u.display_name || u.fullname || '?').charAt(0).toUpperCase() }}</div>
+                                </button>
+                                <div class="flex-1 min-w-0">
+                                    <p class="font-semibold text-gray-900 truncate">{{ u.fullname || u.display_name }}</p>
+                                    <p v-if="u.campus" class="text-xs text-gray-500 truncate">{{ u.campus }}</p>
+                                    <p class="text-xs text-gray-600 mt-1 flex items-center gap-1">
+                                        <component :is="intentIcon(u.their_intent)" class="w-3.5 h-3.5" />
+                                        {{ intentLabel(u.their_intent) }}
+                                    </p>
+                                    <div class="flex gap-2 mt-3">
+                                        <button type="button" @click="openProfileForMatch(u.id)" class="flex-1 px-4 py-2 rounded-xl bg-gray-200 text-gray-700 text-sm font-semibold hover:bg-gray-300">View</button>
+                                        <button type="button" :disabled="likesYouActionUserId === u.id" class="flex-1 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-sm font-semibold hover:opacity-95 disabled:opacity-50" @click="matchBackLikesYou(u)">{{ likesYouActionUserId === u.id ? '…' : 'Like back' }}</button>
+                                    </div>
+                                </div>
+                            </li>
+                        </ul>
+                        <div v-if="likesYouList.length > 0 && likesYouPage < likesYouLastPage" class="p-4 flex justify-center">
+                            <button type="button" :disabled="likesYouLoadingMore" class="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium disabled:opacity-50" @click="fetchLikesYou(likesYouPage + 1)">{{ likesYouLoadingMore ? 'Loading…' : 'Load more' }}</button>
+                        </div>
+                    </template>
                 </div>
             </template>
 
@@ -916,7 +1147,7 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                         <button
                             type="button"
                             @click="handleFriend"
-                            :disabled="isExiting"
+                            :disabled="isExiting || atLikesLimit"
                             class="action-btn action-btn--friend w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-gradient-to-br from-amber-100 to-amber-200 backdrop-blur shadow-2xl flex items-center justify-center text-amber-600 border-3 border-amber-400 disabled:opacity-60 shrink-0 hover:scale-125 hover:shadow-[0_20px_50px_rgba(251,191,36,0.5)] hover:from-amber-200 hover:to-amber-300 transition-all duration-300 group"
                             :class="[
                                 actionsIntroActive ? 'btn-intro delay-1' : '',
@@ -931,7 +1162,7 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                         <button
                             type="button"
                             @click="handleStudyBuddy"
-                            :disabled="isExiting"
+                            :disabled="isExiting || atLikesLimit"
                             class="action-btn action-btn--study w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-gradient-to-br from-cyan-100 to-teal-200 backdrop-blur shadow-2xl flex items-center justify-center text-teal-700 border-3 border-teal-400 disabled:opacity-60 shrink-0 hover:scale-125 hover:shadow-[0_20px_50px_rgba(20,184,166,0.5)] hover:from-cyan-200 hover:to-teal-300 transition-all duration-300 group"
                             :class="[
                                 actionsIntroActive ? 'btn-intro delay-2' : '',
@@ -945,8 +1176,8 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                         </button>
                         <button
                             type="button"
-                            @click="handleDating"
-                            :disabled="isExiting"
+                            @click="handleDating(false)"
+                            :disabled="isExiting || atLikesLimit"
                             class="w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-gradient-to-br from-pink-500 via-red-500 to-rose-600 shadow-2xl flex items-center justify-center hover:scale-125 active:scale-95 transition-all duration-300 border-3 border-pink-400 disabled:opacity-60 shrink-0 hover:shadow-[0_20px_50px_rgba(236,72,153,0.6)] animate-pulse-slow group"
                             :class="[
                                 'action-btn action-btn--dating',
@@ -983,8 +1214,13 @@ function displayName(u: MatchUser | MatchedUser | null): string {
                     </Transition>
                 </div>
 
-                <!-- Swipe hint: bottom left so it doesn't overlap vertical buttons -->
-                <div v-if="!actionPopupVisible" class="absolute bottom-6 left-4 right-24 sm:right-1/2 z-20 flex justify-start sm:justify-center pointer-events-none">
+                <!-- Out of likes CTA (freemium) -->
+                <div v-if="atLikesLimit" class="absolute top-4 left-4 right-24 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-20 px-4 py-3 rounded-2xl bg-amber-500/95 text-white text-sm font-medium shadow-lg flex items-center justify-center gap-2">
+                    <span>Out of likes for today.</span>
+                    <a href="/plus" class="underline font-semibold">Upgrade to Plus</a>
+                </div>
+                <!-- Swipe hint: bottom left -->
+                <div v-else-if="!actionPopupVisible" class="absolute bottom-6 left-4 right-24 sm:right-1/2 z-20 flex justify-start sm:justify-center pointer-events-none">
                     <span class="px-3 py-1.5 rounded-full bg-black/30 backdrop-blur text-white/90 text-xs font-medium">Swipe or tap buttons</span>
                 </div>
             </template>

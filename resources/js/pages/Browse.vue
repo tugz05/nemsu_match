@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { Head, router } from '@inertiajs/vue3';
+import { Head, router, usePage } from '@inertiajs/vue3';
 import { Sparkles, MapPin, GraduationCap, Users, Bell } from 'lucide-vue-next';
 import { BottomNav, NotificationsDropdown } from '@/components/feed';
 import { profilePictureSrc } from '@/composables/useProfilePictureSrc';
 import { useCsrfToken } from '@/composables/useCsrfToken';
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications';
+
+const page = usePage();
+const appLogoUrl = page.props.branding?.app_logo_url ?? null;
+const subscription = page.props.subscription as { freemium_enabled?: boolean; is_plus?: boolean } | undefined;
+const showSubscriptionStatus = subscription?.freemium_enabled === true;
+const isPlus = subscription?.is_plus === true;
 
 type MatchUser = {
     id: number;
@@ -129,13 +135,27 @@ onMounted(() => {
         <div class="sticky top-0 z-40 bg-white border-b border-gray-200">
             <div class="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
                 <div class="flex items-center gap-2 min-w-0">
-                    <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center text-white shadow-md shrink-0">
-                        <Users class="w-5 h-5" />
+                    <div class="w-9 h-9 rounded-xl overflow-hidden bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center text-white shadow-md shrink-0">
+                        <img
+                            v-if="appLogoUrl"
+                            :src="appLogoUrl"
+                            alt="App logo"
+                            class="w-full h-full object-contain"
+                        />
+                        <Users v-else class="w-5 h-5" />
                     </div>
                     <div class="min-w-0">
                         <h1 class="text-base sm:text-lg font-bold text-gray-900 truncate">Browse matches</h1>
                         <p class="text-[11px] sm:text-xs text-gray-500">Filtered by your preferences & compatibility</p>
                     </div>
+                    <a
+                        v-if="showSubscriptionStatus"
+                        href="/plus"
+                        class="shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors"
+                        :class="isPlus ? 'bg-gradient-to-r from-pink-500/15 to-rose-500/15 text-pink-700 border border-pink-200' : 'bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200'"
+                    >
+                        {{ isPlus ? 'Plus' : 'Free' }}
+                    </a>
                 </div>
                 <NotificationsDropdown
                     v-model:open="showNotificationsDropdown"
