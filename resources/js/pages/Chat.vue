@@ -171,7 +171,7 @@ function updateUserOnlineStatus(userId: number, isOnline: boolean) {
     } else {
         onlineUserIds.value.delete(userId);
     }
-    
+
     // Update conversations list
     conversations.value = conversations.value.map(c => ({
         ...c,
@@ -180,7 +180,7 @@ function updateUserOnlineStatus(userId: number, isOnline: boolean) {
             is_online: c.other_user.id === userId ? isOnline : c.other_user.is_online,
         },
     }));
-    
+
     // Update current conversation if it's the same user
     if (currentConversation.value && currentConversation.value.other_user.id === userId) {
         currentConversation.value = {
@@ -196,7 +196,7 @@ function updateUserOnlineStatus(userId: number, isOnline: boolean) {
 function subscribeToPresence() {
     const Echo = getEcho();
     if (!Echo) return;
-    
+
     // Join the online presence channel
     presenceChannel = Echo.join('online')
         .here((users: Array<{ id: number }>) => {
@@ -228,7 +228,7 @@ function updateConversationsOnlineStatus() {
             is_online: isUserOnline(c.other_user.id),
         },
     }));
-    
+
     // Update current conversation
     if (currentConversation.value) {
         currentConversation.value = {
@@ -358,15 +358,15 @@ async function sendNewMessageToUser() {
         });
         const data = await res.json().catch(() => ({}));
         console.log('Send message response:', res.status, data);
-        
+
         if (res.ok) {
             // Both matched messages and message requests now create conversations
             const convId = data.conversation_id || data.message?.conversation_id;
             console.log('Conversation ID:', convId, 'Has conversation data:', !!data.conversation);
-            
+
             if (convId) {
                 closeNewMessage();
-                
+
                 // If conversation data is provided in response, add it immediately
                 if (data.conversation) {
                     const newConv = {
@@ -384,7 +384,7 @@ async function sendNewMessageToUser() {
                         is_pending_request: data.message_request ? true : false,
                         pending_request_from_me: data.message_request ? true : false,
                     };
-                    
+
                     // Add to conversations list if not already there
                     const existingIndex = conversations.value.findIndex((c) => c.id === convId);
                     if (existingIndex >= 0) {
@@ -393,7 +393,7 @@ async function sendNewMessageToUser() {
                         conversations.value = [newConv, ...conversations.value];
                     }
                 }
-                
+
                 await fetchConversations();
                 const conv = conversations.value.find((c) => c.id === convId);
                 if (conv) {
@@ -412,7 +412,7 @@ async function sendNewMessageToUser() {
         } else if (res.status === 200 && data.conversation_id) {
             // Already have pending request, but got conversation data back
             closeNewMessage();
-            
+
             if (data.conversation) {
                 const existingConv = {
                     id: data.conversation.id,
@@ -423,7 +423,7 @@ async function sendNewMessageToUser() {
                     is_pending_request: true,
                     pending_request_from_me: true,
                 };
-                
+
                 const existingIndex = conversations.value.findIndex((c) => c.id === data.conversation_id);
                 if (existingIndex >= 0) {
                     conversations.value[existingIndex] = existingConv;
@@ -431,7 +431,7 @@ async function sendNewMessageToUser() {
                     conversations.value = [existingConv, ...conversations.value];
                 }
             }
-            
+
             await fetchConversations();
             const conv = conversations.value.find((c) => c.id === data.conversation_id);
             if (conv) {
@@ -500,14 +500,14 @@ function subscribeToConversation(conversationId: number) {
     channel.listen('.MessageSent', (e: MessageItem) => {
         if (selectedConversationId.value === conversationId) {
             // Check if this is replacing a temporary message (negative ID) or if it already exists
-            const tempMessageIndex = messages.value.findIndex((m) => 
+            const tempMessageIndex = messages.value.findIndex((m) =>
                 m.id < 0 && m.body === e.body && m.sender_id === e.sender_id
             );
             const messageExists = messages.value.some((m) => m.id === e.id);
-            
+
             if (tempMessageIndex !== -1) {
                 // Replace temporary message with real one (no blink)
-                messages.value = messages.value.map((m, i) => 
+                messages.value = messages.value.map((m, i) =>
                     i === tempMessageIndex ? e : m
                 );
             } else if (!messageExists) {
@@ -578,7 +578,7 @@ async function sendMessage() {
     sending.value = true;
     const tempBody = body; // Store for optimistic update
     newMessageBody.value = '';
-    
+
     // Optimistic update - add temporary message with negative ID
     const tempId = -Date.now(); // Negative timestamp for temporary ID
     const tempMessage: MessageItem = {
@@ -590,7 +590,7 @@ async function sendMessage() {
         created_at: new Date().toISOString(),
     };
     messages.value = [...messages.value, tempMessage];
-    
+
     try {
         const res = await fetch(`/api/conversations/${currentConversation.value.id}/messages`, {
             method: 'POST',
@@ -605,7 +605,7 @@ async function sendMessage() {
         if (res.ok) {
             const data = await res.json();
             // Replace temporary message with real one immediately to prevent blinking
-            messages.value = messages.value.map(m => 
+            messages.value = messages.value.map(m =>
                 m.id === tempId ? data.message : m
             );
             fetchConversations();
@@ -669,25 +669,25 @@ function blockUser() {
 
 async function confirmBlockUser() {
     if (!currentConversation.value) return;
-    
+
     const userName = displayName(currentConversation.value.other_user);
     blockingUser.value = true;
-    
+
     try {
         const res = await fetch(`/api/users/${currentConversation.value.other_user.id}/block`, {
             method: 'POST',
             credentials: 'same-origin',
             headers: { 'X-CSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
         });
-        
+
         if (!res.ok) {
             throw new Error('Failed to block user');
         }
-        
+
         showBlockDialog.value = false;
         closeConversation();
         await fetchConversations();
-        
+
         // Show success message
         successMessage.value = `${userName} has been blocked successfully.`;
         showSuccessToast.value = true;
@@ -708,10 +708,10 @@ function reportConversation() {
 
 async function submitReport(payload: { reason: string }) {
     if (!currentConversation.value) return;
-    
+
     const userName = displayName(currentConversation.value.other_user);
     reportingConversation.value = true;
-    
+
     try {
         const res = await fetch(`/api/conversations/${currentConversation.value.id}/report`, {
             method: 'POST',
@@ -721,17 +721,17 @@ async function submitReport(payload: { reason: string }) {
                 'X-CSRF-TOKEN': getCsrfToken(),
                 Accept: 'application/json',
             },
-            body: JSON.stringify({ 
-                reason: payload.reason || 'Inappropriate conversation' 
+            body: JSON.stringify({
+                reason: payload.reason || 'Inappropriate conversation'
             }),
         });
-        
+
         if (!res.ok) {
             throw new Error('Failed to report conversation');
         }
-        
+
         showReportDialog.value = false;
-        
+
         // Show success message
         successMessage.value = `Thank you for your report. Our team will review this conversation with ${userName}.`;
         showSuccessToast.value = true;
@@ -1016,7 +1016,7 @@ onUnmounted(() => {
                         </div>
                     </div>
                 </header>
-                
+
                 <!-- Empty message area with hint -->
                 <div class="flex-1 overflow-y-auto min-h-0 px-4 py-4 pb-[88px]">
                     <div class="flex flex-col items-center justify-center py-16 text-center">
@@ -1027,13 +1027,13 @@ onUnmounted(() => {
                         <p class="font-semibold text-gray-900">{{ displayName(selectedUserForNewMessage) }}</p>
                     </div>
                 </div>
-                
+
                 <!-- Fixed input bar at bottom (matching regular conversation) -->
                 <div class="fixed bottom-20 left-0 right-0 z-30 bg-white border-t border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]">
                     <div class="max-w-2xl mx-auto px-4 py-3 flex items-center gap-2">
                         <div class="relative emoji-picker-container">
-                            <button 
-                                type="button" 
+                            <button
+                                type="button"
                                 @click.stop="toggleComposeEmojiPicker"
                                 class="p-2.5 rounded-full hover:bg-gray-100 shrink-0 transition-colors emoji-button"
                                 :class="showComposeEmojiPicker ? 'bg-blue-100 text-blue-600' : 'text-gray-500'"
@@ -1109,7 +1109,7 @@ onUnmounted(() => {
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-2">
                                 <p class="font-semibold text-gray-900 truncate">{{ displayName(c.other_user) }}</p>
-                                <span 
+                                <span
                                     v-if="c.is_pending_request && c.pending_request_from_me"
                                     class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-medium whitespace-nowrap"
                                 >
@@ -1194,7 +1194,12 @@ onUnmounted(() => {
                             <ChevronLeft class="w-5 h-5 text-gray-700" />
                         </button>
                         <div class="flex-1 min-w-0 flex items-center gap-3">
-                            <div class="relative w-10 h-10 flex-shrink-0">
+                            <button
+                                type="button"
+                                class="relative w-10 h-10 flex-shrink-0 rounded-full cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white"
+                                @click="router.visit(`/profile/${currentConversation.other_user.id}?from_chat=1`)"
+                                aria-label="View profile"
+                            >
                                 <div class="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-blue-100 to-cyan-100">
                                     <img
                                         v-if="currentConversation.other_user.profile_picture"
@@ -1211,7 +1216,7 @@ onUnmounted(() => {
                                     :class="currentConversation.other_user.is_online ? 'bg-green-500' : 'bg-gray-400'"
                                     :title="currentConversation.other_user.is_online ? 'Online' : 'Offline'"
                                 />
-                            </div>
+                            </button>
                             <div class="min-w-0 flex-1">
                                 <p class="font-semibold text-gray-900 truncate">{{ displayName(currentConversation.other_user) }}</p>
                                 <p class="text-xs text-gray-500">
@@ -1296,8 +1301,8 @@ onUnmounted(() => {
             <div class="fixed bottom-20 left-0 right-0 z-30 bg-white border-t border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]">
                 <div class="max-w-2xl mx-auto px-4 py-3 flex items-center gap-2">
                     <div class="relative emoji-picker-container">
-                        <button 
-                            type="button" 
+                        <button
+                            type="button"
                             @click.stop="toggleMessageEmojiPicker"
                             class="p-2.5 rounded-full hover:bg-gray-100 shrink-0 transition-colors emoji-button"
                             :class="showMessageEmojiPicker ? 'bg-blue-100 text-blue-600' : 'text-gray-500'"

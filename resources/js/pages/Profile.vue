@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { Head, router } from '@inertiajs/vue3';
+import { Head, router, usePage } from '@inertiajs/vue3';
 import { User, MapPin, GraduationCap, Calendar, Heart, Book, Target, Trophy, ChevronLeft, MessageCircle, Users, Star, X } from 'lucide-vue-next';
 import { profilePictureSrc } from '@/composables/useProfilePictureSrc';
 import { BottomNav } from '@/components/feed';
@@ -73,6 +73,16 @@ const age = computed(() => {
 });
 
 const getCsrfToken = () => document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+
+const page = usePage();
+const fromChat = computed(() => {
+    const url = String(page.url || '');
+    const queryIndex = url.indexOf('?');
+    if (queryIndex === -1) return false;
+    const search = url.slice(queryIndex);
+    const params = new URLSearchParams(search);
+    return params.get('from_chat') === '1';
+});
 
 const toggleFollow = async () => {
     followLoading.value = true;
@@ -478,8 +488,8 @@ async function submitUserReport() {
             :images="fullscreenImages"
         />
 
-        <!-- Floating Chat Now (like your screenshot) -->
-        <div class="fixed left-0 right-0 z-50 bottom-[calc(env(safe-area-inset-bottom)+104px)]">
+        <!-- Floating Chat Now (hidden when coming from chat conversation) -->
+        <div v-if="!fromChat" class="fixed left-0 right-0 z-50 bottom-[calc(env(safe-area-inset-bottom)+104px)]">
             <div class="max-w-md mx-auto px-4">
                 <button
                     type="button"
