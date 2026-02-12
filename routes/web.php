@@ -14,6 +14,8 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ConsentController;
 use App\Http\Controllers\ProfileSetupController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\StudentIdController; 
+use App\Http\Controllers\Admin\ReportController; 
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
@@ -177,7 +179,7 @@ Route::middleware(['auth', 'verified', 'profile.completed'])->group(function () 
         $allConvs = \App\Models\Conversation::where(function ($q) use ($me) {
             $q->where('user1_id', $me->id)->orWhere('user2_id', $me->id);
         })->with(['user1', 'user2'])->withCount('messages')->get();
-        
+
         return response()->json([
             'user_id' => $me->id,
             'total_conversations' => $allConvs->count(),
@@ -242,26 +244,24 @@ Route::middleware(['auth', 'verified', 'profile.completed'])->group(function () 
     Route::delete('api/posts/{post}', [PostController::class, 'destroy'])->name('posts.destroy');
 });
 
-// Settings routes removed - will create custom NEMSU Match settings later if needed
-
 // Superadmin routes
 Route::middleware(['auth', 'verified', 'superadmin'])->prefix('superadmin')->name('superadmin.')->group(function () {
     Route::get('/', [\App\Http\Controllers\Superadmin\DashboardController::class, 'index'])->name('dashboard');
-    
+
     // Admin & Editor Management
     Route::get('admins', [\App\Http\Controllers\Superadmin\AdminController::class, 'index'])->name('admins.index');
     Route::post('admins', [\App\Http\Controllers\Superadmin\AdminController::class, 'store'])->name('admins.store');
     Route::put('admins/{adminRole}', [\App\Http\Controllers\Superadmin\AdminController::class, 'update'])->name('admins.update');
     Route::delete('admins/{adminRole}', [\App\Http\Controllers\Superadmin\AdminController::class, 'destroy'])->name('admins.destroy');
     Route::get('admins/search-users', [\App\Http\Controllers\Superadmin\AdminController::class, 'searchUsers'])->name('admins.search-users');
-    
+
     // User Management
     Route::get('users', [\App\Http\Controllers\Superadmin\UserController::class, 'index'])->name('users.index');
     Route::get('users/{user}', [\App\Http\Controllers\Superadmin\UserController::class, 'show'])->name('users.show');
     Route::put('users/{user}', [\App\Http\Controllers\Superadmin\UserController::class, 'update'])->name('users.update');
     Route::post('users/{user}/toggle-status', [\App\Http\Controllers\Superadmin\UserController::class, 'toggleStatus'])->name('users.toggle-status');
     Route::delete('users/{user}', [\App\Http\Controllers\Superadmin\UserController::class, 'destroy'])->name('users.destroy');
-    
+
     // App Settings
     Route::get('settings', [\App\Http\Controllers\Superadmin\SettingsController::class, 'index'])->name('settings.index');
     Route::post('settings', [\App\Http\Controllers\Superadmin\SettingsController::class, 'store'])->name('settings.store');
@@ -271,7 +271,22 @@ Route::middleware(['auth', 'verified', 'superadmin'])->prefix('superadmin')->nam
     Route::post('settings/upload-branding', [\App\Http\Controllers\Superadmin\SettingsController::class, 'uploadBranding'])->name('settings.upload-branding');
 });
 
-// Admin routes (for regular admins and editors)
-Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.')->group(function () {
-    Route::get('dashboard', [\App\Http\Controllers\Admin\DashboardController::class, 'index'])->name('dashboard');
-});
+// ==========================================
+// FIXED ADMIN & REPORT ROUTES SECTION
+// ==========================================
+Route::middleware(['auth', 'verified', 'admin'])
+    ->prefix('admin')
+    ->name('admin.')
+    ->group(function () {
+        // Dashboard
+        Route::get('dashboard', [\App\Http\Controllers\Admin\DashboardController::class, 'index'])->name('dashboard');
+
+        // Message Reports (LIST)
+        Route::get('message-report', [\App\Http\Controllers\Admin\ReportController::class, 'index'])->name('message.report');
+        
+        // Message Reports (UPDATE STATUS) -> IDINAGDAG NATIN ITO
+        Route::put('message-report/{id}', [\App\Http\Controllers\Admin\ReportController::class, 'update'])->name('message.report.update');
+
+        // Message Reports (DELETE)
+        Route::delete('message-report/{id}', [\App\Http\Controllers\Admin\ReportController::class, 'destroy'])->name('message.report.destroy');
+    });
