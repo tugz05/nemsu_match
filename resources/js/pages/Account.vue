@@ -354,7 +354,7 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick));
                         <span>{{ user.fullname }}</span>
                         <span
                             v-if="user.is_workspace_verified"
-                            class="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-600 text-[11px] font-semibold px-2 py-0.5 border border-blue-200 shrink-0"
+                            class="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-[11px] font-semibold px-2.5 py-0.5 shadow-sm shrink-0"
                         >
                             <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
                                 <path

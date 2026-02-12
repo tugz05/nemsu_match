@@ -14,8 +14,12 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ConsentController;
 use App\Http\Controllers\ProfileSetupController;
 use App\Http\Controllers\UserController;
+<<<<<<< HEAD
 use App\Http\Controllers\StudentIdController; 
 use App\Http\Controllers\Admin\ReportController; 
+=======
+use App\Http\Controllers\StudentIdController;
+>>>>>>> 7ebf5ad530d4d74f6ae49502b8a783182c297462
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
