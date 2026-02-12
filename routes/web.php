@@ -122,28 +122,6 @@ Route::get('profile/{user}', [ProfileController::class, 'show'])
     ->middleware(['auth', 'verified', 'profile.completed'])
     ->name('profile.show');
 
-// Debug: see what array data the account page receives (remove in production)
-Route::get('account-debug-arrays', function () {
-    $user = Auth::user();
-    $row = DB::table('users')->where('id', $user->id)->first();
-    $decode = function($raw) {
-        if ($raw === null || $raw === '') return [];
-        if (is_array($raw)) return array_values(array_filter($raw, 'is_string'));
-        if (!is_string($raw)) return [];
-        $d = json_decode($raw, true);
-        return is_array($d) ? array_values(array_filter($d, 'is_string')) : [];
-    };
-    return response()->json([
-        'user_id' => $user->id,
-        'raw_extracurricular' => $row->extracurricular_activities ?? null,
-        'raw_academic_goals' => $row->academic_goals ?? null,
-        'raw_interests' => $row->interests ?? null,
-        'decoded_extracurricular_activities' => $decode($row->extracurricular_activities ?? null),
-        'decoded_academic_goals' => $decode($row->academic_goals ?? null),
-        'decoded_interests' => $decode($row->interests ?? null),
-    ]);
-})->middleware(['auth', 'verified', 'profile.completed']);
-
 // Account update route
 Route::post('api/account/update', [AccountController::class, 'update'])
     ->middleware(['auth', 'verified', 'profile.completed'])
@@ -176,32 +154,12 @@ Route::middleware(['auth', 'verified', 'profile.completed'])->group(function () 
 // Chat / Messaging
 Route::middleware(['auth', 'verified', 'profile.completed'])->group(function () {
     Route::get('chat', function () {
-    return Inertia::render('Chat', [
-        'conversationId' => request()->query('conversation'),
-        'userId' => request()->query('user'),
-    ]);
-})->name('chat');
-    Route::get('api/conversations/debug', function () {
-        $me = Auth::user();
-        $allConvs = \App\Models\Conversation::where(function ($q) use ($me) {
-            $q->where('user1_id', $me->id)->orWhere('user2_id', $me->id);
-        })->with(['user1', 'user2'])->withCount('messages')->get();
-        
-        return response()->json([
-            'user_id' => $me->id,
-            'total_conversations' => $allConvs->count(),
-            'conversations' => $allConvs->map(fn($c) => [
-                'id' => $c->id,
-                'user1_id' => $c->user1_id,
-                'user2_id' => $c->user2_id,
-                'messages_count' => $c->messages_count,
-                'updated_at' => $c->updated_at,
-                'created_at' => $c->created_at,
-                'user1_name' => $c->user1?->display_name,
-                'user2_name' => $c->user2?->display_name,
-            ]),
+        return Inertia::render('Chat', [
+            'conversationId' => request()->query('conversation'),
+            'userId' => request()->query('user'),
         ]);
-    });
+    })->name('chat');
+
     Route::get('api/conversations', [ChatController::class, 'index'])->name('chat.conversations');
     Route::get('api/conversations/unread-count', [ChatController::class, 'unreadCount'])->name('chat.unread-count');
     Route::get('api/conversations/{conversation}', [ChatController::class, 'show'])->name('chat.conversations.show');
@@ -228,15 +186,15 @@ Route::middleware(['auth', 'verified', 'profile.completed'])->group(function () 
     Route::post('api/notifications/read-all', [NotificationController::class, 'markAllAsRead'])->name('notifications.read-all');
 });
 
-// Single post view (shareable URL, supports ?comment=123 or #comment-123 for anchor)
+// Single post view
 Route::get('post/{post}', function (\App\Models\Post $post) {
     return Inertia::render('PostView', [
         'postId' => $post->id,
-        'commentId' => request()->query('comment'), // optional: scroll to this comment
+        'commentId' => request()->query('comment'),
     ]);
 })->middleware(['auth', 'verified', 'profile.completed'])->name('post.show');
 
-// Posts routes (Social feed - Threads-like)
+// Posts routes
 Route::middleware(['auth', 'verified', 'profile.completed'])->group(function () {
     Route::get('api/posts', [PostController::class, 'index'])->name('posts.index');
     Route::get('api/posts/{post}', [PostController::class, 'show'])->name('posts.show');
@@ -251,19 +209,17 @@ Route::middleware(['auth', 'verified', 'profile.completed'])->group(function () 
     Route::delete('api/posts/{post}', [PostController::class, 'destroy'])->name('posts.destroy');
 });
 
-// Settings routes removed - will create custom NEMSU Match settings later if needed
-
 // Superadmin routes
 Route::middleware(['auth', 'verified', 'superadmin'])->prefix('superadmin')->name('superadmin.')->group(function () {
     Route::get('/', [\App\Http\Controllers\Superadmin\DashboardController::class, 'index'])->name('dashboard');
-    
-    // Admin & Editor Management
+
+    // Admin Management
     Route::get('admins', [\App\Http\Controllers\Superadmin\AdminController::class, 'index'])->name('admins.index');
     Route::post('admins', [\App\Http\Controllers\Superadmin\AdminController::class, 'store'])->name('admins.store');
     Route::put('admins/{adminRole}', [\App\Http\Controllers\Superadmin\AdminController::class, 'update'])->name('admins.update');
     Route::delete('admins/{adminRole}', [\App\Http\Controllers\Superadmin\AdminController::class, 'destroy'])->name('admins.destroy');
     Route::get('admins/search-users', [\App\Http\Controllers\Superadmin\AdminController::class, 'searchUsers'])->name('admins.search-users');
-    
+
     // User Management
     Route::get('users', [\App\Http\Controllers\Superadmin\UserController::class, 'index'])->name('users.index');
     Route::get('users/{user}', [\App\Http\Controllers\Superadmin\UserController::class, 'show'])->name('users.show');
@@ -277,17 +233,21 @@ Route::middleware(['auth', 'verified', 'superadmin'])->prefix('superadmin')->nam
     Route::post('reported-users/{report}/disable-account', [SuperadminReportController::class, 'disableAccount'])->name('reported-users.disable-account');
     Route::post('appeals/{appeal}/review', [SuperadminReportController::class, 'reviewAppeal'])->name('appeals.review');
     Route::get('disabled-users', [SuperadminReportController::class, 'disabledUsers'])->name('disabled-users.index');
-    
+
     // App Settings
     Route::get('settings', [\App\Http\Controllers\Superadmin\SettingsController::class, 'index'])->name('settings.index');
     Route::post('settings', [\App\Http\Controllers\Superadmin\SettingsController::class, 'store'])->name('settings.store');
     Route::put('settings/{appSetting}', [\App\Http\Controllers\Superadmin\SettingsController::class, 'update'])->name('settings.update');
     Route::delete('settings/{appSetting}', [\App\Http\Controllers\Superadmin\SettingsController::class, 'destroy'])->name('settings.destroy');
-    Route::post('settings/bulk-update', [\App\Http\Controllers\Superadmin\SettingsController::class, 'bulkUpdate'])->name('settings.bulk-update');
-    Route::post('settings/upload-branding', [\App\Http\Controllers\Superadmin\SettingsController::class, 'uploadBranding'])->name('settings.upload-branding');
 });
 
-// Admin routes (for regular admins and editors)
-Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.')->group(function () {
-    Route::get('dashboard', [\App\Http\Controllers\Admin\DashboardController::class, 'index'])->name('dashboard');
-});
+// Fixed Admin & Report Routes Section
+Route::middleware(['auth', 'verified', 'admin'])
+    ->prefix('admin')
+    ->name('admin.')
+    ->group(function () {
+        Route::get('dashboard', [\App\Http\Controllers\Admin\DashboardController::class, 'index'])->name('dashboard');
+        Route::get('message-report', [\App\Http\Controllers\Admin\ReportController::class, 'index'])->name('message.report');
+        Route::put('message-report/{id}', [\App\Http\Controllers\Admin\ReportController::class, 'update'])->name('message.report.update');
+        Route::delete('message-report/{id}', [\App\Http\Controllers\Admin\ReportController::class, 'destroy'])->name('message.report.destroy');
+    });

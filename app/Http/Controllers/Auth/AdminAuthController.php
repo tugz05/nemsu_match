@@ -17,18 +17,21 @@ class AdminAuthController extends Controller
 {
     /**
      * Show the admin login page
+     * Note: Return type removed to allow Redirects
      */
-    public function showLogin(): Response
+    public function showLogin()
     {
         // If user is already authenticated and is admin/superadmin, redirect to appropriate dashboard
         if (Auth::check()) {
             $user = Auth::user();
             
             if ($user->is_superadmin) {
+                // Returns a Symfony Response (Redirect)
                 return Inertia::location('/superadmin');
             }
             
             if ($user->is_admin) {
+                // Returns a Symfony Response (Redirect)
                 return Inertia::location('/admin/dashboard');
             }
             
@@ -36,6 +39,7 @@ class AdminAuthController extends Controller
             Auth::logout();
         }
 
+        // Returns an Inertia Response
         return Inertia::render('auth/AdminLogin');
     }
 
