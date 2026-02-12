@@ -78,6 +78,7 @@ class MatchmakingService
     {
         $q = User::query()
             ->where('profile_completed', true)
+            ->where('is_disabled', false)
             ->whereNotIn('id', $excludedIds)
             ->select([
                 'id', 'display_name', 'fullname', 'profile_picture',
