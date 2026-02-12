@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { Head, router } from '@inertiajs/vue3';
-import { Heart, X, Sparkles, Smile, BookOpen, ChevronLeft, MessageCircle } from 'lucide-vue-next';
+import { Heart, X, Sparkles, Smile, BookOpen, ChevronLeft, MessageCircle, ShieldCheck } from 'lucide-vue-next';
 import { BottomNav } from '@/components/feed';
 import { useCsrfToken } from '@/composables/useCsrfToken';
 import { profilePictureSrc } from '@/composables/useProfilePictureSrc';
@@ -1012,6 +1012,17 @@ function displayName(u: MatchUser | MatchedUser | null): string {
             <!-- Discover: swipe cards - wrapper gets flex height so card stack can fill it -->
             <template v-else>
             <div class="discover-fill flex-1 min-h-0 relative flex flex-col">
+            <div class="absolute top-3 left-3 right-20 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-20">
+                <div class="rounded-xl border border-blue-200 bg-blue-50/95 backdrop-blur px-3 py-2 shadow-sm">
+                    <div class="flex items-start gap-2">
+                        <ShieldCheck class="w-4 h-4 text-blue-700 mt-0.5 shrink-0" />
+                        <p class="text-[11px] sm:text-xs text-blue-900 leading-snug">
+                            Safety tip: You can report malicious accounts from their profile. A badge on the profile means the user is verified.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
             <div v-if="loading && profiles.length === 0" class="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-background to-muted">
                 <div class="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
             </div>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
-import { Sparkles, MapPin, GraduationCap, Users, Bell } from 'lucide-vue-next';
+import { Sparkles, MapPin, GraduationCap, Users, Bell, ShieldCheck } from 'lucide-vue-next';
 import { BottomNav, NotificationsDropdown } from '@/components/feed';
 import { profilePictureSrc } from '@/composables/useProfilePictureSrc';
 import { useCsrfToken } from '@/composables/useCsrfToken';
@@ -185,6 +185,15 @@ onMounted(() => {
 
         <!-- Matches list -->
         <div class="max-w-2xl mx-auto px-4 py-4 space-y-3">
+            <div class="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
+                <div class="flex items-start gap-2">
+                    <ShieldCheck class="w-4 h-4 text-blue-700 mt-0.5 shrink-0" />
+                    <p class="text-xs sm:text-sm text-blue-900 leading-relaxed">
+                        Safety tip: If an account looks malicious, open the profile and report it. A badge on the profile means the user is verified.
+                    </p>
+                </div>
+            </div>
+
             <div v-if="loading && matches.length === 0" class="flex justify-center py-16">
                 <div class="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
             </div>
