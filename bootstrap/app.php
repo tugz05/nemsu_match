@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureProfileCompleted;
+use App\Http\Middleware\EnsureProfilePictureUploaded;
 use App\Http\Middleware\EnsureAdmin;
 use App\Http\Middleware\EnsureSuperadmin;
 use App\Http\Middleware\EnsureAccountNotDisabled;
@@ -35,6 +36,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'profile.completed' => EnsureProfileCompleted::class,
+            'profile.picture' => EnsureProfilePictureUploaded::class,
             'admin' => EnsureAdmin::class,
             'superadmin' => EnsureSuperadmin::class,
             'account.active' => EnsureAccountNotDisabled::class,

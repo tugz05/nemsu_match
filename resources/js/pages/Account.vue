@@ -85,6 +85,7 @@ const profilePreview = ref<string | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
 const activeTab = ref<'gallery' | 'about'>('about');
 const showSettingsMenu = ref(false);
+const showRequirePictureDialog = ref(false);
 
 // Gallery (Create / Delete, Instagram-style grid)
 const getCsrfToken = useCsrfToken();
@@ -223,6 +224,14 @@ const handleProfilePicture = (event: Event) => {
     }
 };
 
+function startRequiredPictureUpload() {
+    showRequirePictureDialog.value = false;
+    if (!isEditing.value) {
+        toggleEdit();
+    }
+    fileInput.value?.click();
+}
+
 // Toggle edit mode - when entering edit, sync form arrays from current props
 const toggleEdit = () => {
     if (isEditing.value) {
@@ -286,6 +295,14 @@ function onDocumentClick(e: MouseEvent) {
 }
 onMounted(() => document.addEventListener('click', onDocumentClick));
 onUnmounted(() => document.removeEventListener('click', onDocumentClick));
+
+onMounted(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requiresPicture = params.get('require_profile_picture') === '1';
+    if (requiresPicture && !props.user.profile_picture) {
+        showRequirePictureDialog.value = true;
+    }
+});
 </script>
 
 <template>
@@ -908,6 +925,34 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick));
             v-model:index="fullscreenIndex"
             :images="fullscreenImages"
         />
+
+        <div
+            v-if="showRequirePictureDialog"
+            class="fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+        >
+            <div class="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-gray-200 p-5">
+                <h3 class="text-lg font-bold text-gray-900">Upload profile picture required</h3>
+                <p class="mt-2 text-sm text-gray-600 leading-relaxed">
+                    You need to upload a profile picture before you can access Browse and Discover.
+                </p>
+                <div class="mt-5 flex items-center justify-end gap-2">
+                    <button
+                        type="button"
+                        class="px-4 py-2 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-100"
+                        @click="showRequirePictureDialog = false"
+                    >
+                        Later
+                    </button>
+                    <button
+                        type="button"
+                        class="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-cyan-500 hover:opacity-95"
+                        @click="startRequiredPictureUpload"
+                    >
+                        Upload now
+                    </button>
+                </div>
+            </div>
+        </div>
 
         <BottomNav active-tab="account" />
     </div>

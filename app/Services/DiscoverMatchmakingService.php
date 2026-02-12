@@ -96,6 +96,8 @@ class DiscoverMatchmakingService
         $q = User::query()
             ->where('profile_completed', true)
             ->where('is_disabled', false)
+            ->whereNotNull('profile_picture')
+            ->where('profile_picture', '!=', '')
             ->whereNotIn('id', $excludedIds)
             ->select(array_merge($select, ['boost_ends_at']));
 

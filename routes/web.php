@@ -75,12 +75,12 @@ Route::get('like-you', function () {
     return Inertia::render('LikeYou', [
         'user' => Auth::user()->only(['id', 'display_name', 'profile_picture']),
     ]);
-})->middleware(['auth', 'verified', 'profile.completed'])->name('likeyou');
+})->middleware(['auth', 'verified', 'profile.completed', 'profile.picture'])->name('likeyou');
 
 // Browse - Suggested matches list
 Route::get('browse', function () {
     return Inertia::render('Browse');
-})->middleware(['auth', 'verified', 'profile.completed', 'account.active'])->name('browse');
+})->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('browse');
 
 // Disabled account info + appeal
 Route::middleware(['auth', 'verified'])->group(function () {
@@ -132,15 +132,17 @@ Route::middleware(['auth', 'verified', 'profile.completed'])->group(function () 
     Route::get('api/users/search', [UserController::class, 'search'])->name('users.search');
     Route::post('api/users/{user}/follow', [UserController::class, 'toggleFollow'])->name('users.follow');
     Route::post('api/users/{user}/report', [UserController::class, 'report'])->name('users.report');
-    Route::get('api/matchmaking', [MatchmakingController::class, 'index'])->name('matchmaking.index');
-    Route::get('api/matchmaking/discover', [MatchmakingController::class, 'discover'])->name('matchmaking.discover');
-    Route::get('api/matchmaking/freemium-state', [MatchmakingController::class, 'freemiumState'])->name('matchmaking.freemium-state');
-    Route::get('api/matchmaking/likes', [MatchmakingController::class, 'likes'])->name('matchmaking.likes');
-    Route::get('api/matchmaking/who-liked-me-count', [MatchmakingController::class, 'whoLikedMeCount'])->name('matchmaking.who-liked-me-count');
-    Route::get('api/matchmaking/who-liked-me', [MatchmakingController::class, 'whoLikedMe'])->name('matchmaking.who-liked-me');
-    Route::get('api/matchmaking/my-recent-likes', [MatchmakingController::class, 'myRecentLikes'])->name('matchmaking.my-recent-likes');
-    Route::get('api/matchmaking/mutual', [MatchmakingController::class, 'mutualMatches'])->name('matchmaking.mutual');
-    Route::post('api/matchmaking/action', [MatchmakingController::class, 'action'])->name('matchmaking.action');
+    Route::middleware('profile.picture')->group(function () {
+        Route::get('api/matchmaking', [MatchmakingController::class, 'index'])->name('matchmaking.index');
+        Route::get('api/matchmaking/discover', [MatchmakingController::class, 'discover'])->name('matchmaking.discover');
+        Route::get('api/matchmaking/freemium-state', [MatchmakingController::class, 'freemiumState'])->name('matchmaking.freemium-state');
+        Route::get('api/matchmaking/likes', [MatchmakingController::class, 'likes'])->name('matchmaking.likes');
+        Route::get('api/matchmaking/who-liked-me-count', [MatchmakingController::class, 'whoLikedMeCount'])->name('matchmaking.who-liked-me-count');
+        Route::get('api/matchmaking/who-liked-me', [MatchmakingController::class, 'whoLikedMe'])->name('matchmaking.who-liked-me');
+        Route::get('api/matchmaking/my-recent-likes', [MatchmakingController::class, 'myRecentLikes'])->name('matchmaking.my-recent-likes');
+        Route::get('api/matchmaking/mutual', [MatchmakingController::class, 'mutualMatches'])->name('matchmaking.mutual');
+        Route::post('api/matchmaking/action', [MatchmakingController::class, 'action'])->name('matchmaking.action');
+    });
 
     // Gallery (Account + Profile viewing)
     Route::get('api/gallery', [GalleryController::class, 'index'])->name('gallery.index');
