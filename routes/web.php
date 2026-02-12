@@ -15,6 +15,8 @@ use App\Http\Controllers\ConsentController;
 use App\Http\Controllers\ProfileSetupController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\StudentIdController;
+use App\Http\Controllers\DisabledAccountController;
+use App\Http\Controllers\Superadmin\ReportController as SuperadminReportController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
@@ -78,7 +80,13 @@ Route::get('like-you', function () {
 // Browse - Suggested matches list
 Route::get('browse', function () {
     return Inertia::render('Browse');
-})->middleware(['auth', 'verified', 'profile.completed'])->name('browse');
+})->middleware(['auth', 'verified', 'profile.completed', 'account.active'])->name('browse');
+
+// Disabled account info + appeal
+Route::middleware(['auth', 'verified'])->group(function () {
+    Route::get('account-disabled', [DisabledAccountController::class, 'show'])->name('account.disabled');
+    Route::post('api/account-disabled/appeal', [DisabledAccountController::class, 'submitAppeal'])->name('account.disabled.appeal');
+});
 
 // NEMSU Match Plus - Upgrade page (subscription)
 Route::get('plus', function () {
@@ -262,6 +270,13 @@ Route::middleware(['auth', 'verified', 'superadmin'])->prefix('superadmin')->nam
     Route::put('users/{user}', [\App\Http\Controllers\Superadmin\UserController::class, 'update'])->name('users.update');
     Route::post('users/{user}/toggle-status', [\App\Http\Controllers\Superadmin\UserController::class, 'toggleStatus'])->name('users.toggle-status');
     Route::delete('users/{user}', [\App\Http\Controllers\Superadmin\UserController::class, 'destroy'])->name('users.destroy');
+
+    // Reported users & disabled accounts
+    Route::get('reported-users', [SuperadminReportController::class, 'reportedUsers'])->name('reported-users.index');
+    Route::get('reported-users/{report}', [SuperadminReportController::class, 'details'])->name('reported-users.details');
+    Route::post('reported-users/{report}/disable-account', [SuperadminReportController::class, 'disableAccount'])->name('reported-users.disable-account');
+    Route::post('appeals/{appeal}/review', [SuperadminReportController::class, 'reviewAppeal'])->name('appeals.review');
+    Route::get('disabled-users', [SuperadminReportController::class, 'disabledUsers'])->name('disabled-users.index');
     
     // App Settings
     Route::get('settings', [\App\Http\Controllers\Superadmin\SettingsController::class, 'index'])->name('settings.index');

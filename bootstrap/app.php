@@ -3,6 +3,7 @@
 use App\Http\Middleware\EnsureProfileCompleted;
 use App\Http\Middleware\EnsureAdmin;
 use App\Http\Middleware\EnsureSuperadmin;
+use App\Http\Middleware\EnsureAccountNotDisabled;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\UpdateLastSeen;
@@ -36,6 +37,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'profile.completed' => EnsureProfileCompleted::class,
             'admin' => EnsureAdmin::class,
             'superadmin' => EnsureSuperadmin::class,
+            'account.active' => EnsureAccountNotDisabled::class,
         ]);
 
         // Redirect unauthenticated users to home page instead of /login

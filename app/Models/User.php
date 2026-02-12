@@ -59,6 +59,10 @@ class User extends Authenticatable
         'is_workspace_verified',
         'is_admin',
         'is_superadmin',
+        'is_disabled',
+        'disabled_reason',
+        'disabled_at',
+        'disabled_by',
         'last_seen_at',
     ];
 
@@ -94,6 +98,8 @@ class User extends Authenticatable
             'last_seen_at' => 'datetime',
             'is_admin' => 'boolean',
             'is_superadmin' => 'boolean',
+            'is_disabled' => 'boolean',
+            'disabled_at' => 'datetime',
             'preferred_age_min' => 'integer',
             'preferred_age_max' => 'integer',
             'courses' => 'array',
@@ -332,6 +338,18 @@ class User extends Authenticatable
     public function galleryPhotos(): HasMany
     {
         return $this->hasMany(UserGalleryPhoto::class);
+    }
+
+    /** Reports where this user is the reported account */
+    public function reportsAgainst(): HasMany
+    {
+        return $this->hasMany(UserReport::class, 'reported_user_id');
+    }
+
+    /** Appeals submitted by this user after disable */
+    public function reportAppeals(): HasMany
+    {
+        return $this->hasMany(\App\Models\UserReportAppeal::class);
     }
 
     /** Admin role assigned to this user */

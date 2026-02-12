@@ -5,6 +5,8 @@ import {
     LayoutDashboard, 
     Users, 
     UserCog, 
+    ShieldAlert,
+    UserX,
     Settings, 
     Menu, 
     X, 
@@ -19,6 +21,8 @@ const showMobileMenu = ref(false);
 const navigation = [
     { name: 'Dashboard', href: '/superadmin', icon: LayoutDashboard },
     { name: 'Users', href: '/superadmin/users', icon: Users },
+    { name: 'Reported Users', href: '/superadmin/reported-users', icon: ShieldAlert },
+    { name: 'Disabled Accounts', href: '/superadmin/disabled-users', icon: UserX },
     { name: 'Admins & Editors', href: '/superadmin/admins', icon: UserCog },
     { name: 'Settings', href: '/superadmin/settings', icon: Settings },
 ];

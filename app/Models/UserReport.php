@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class UserReport extends Model
 {
@@ -23,6 +24,11 @@ class UserReport extends Model
     public function reportedUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reported_user_id');
+    }
+
+    public function appeals(): HasMany
+    {
+        return $this->hasMany(UserReportAppeal::class);
     }
 }
 
