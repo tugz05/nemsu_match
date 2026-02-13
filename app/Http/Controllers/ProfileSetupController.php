@@ -160,7 +160,7 @@ class ProfileSetupController extends Controller
 
         $user = Auth::user();
 
-        // Handle profile picture upload
+        // Handle profile picture upload: only update when a new file is provided
         if ($request->hasFile('profile_picture')) {
             // Delete old profile picture if exists
             if ($user->profile_picture) {
@@ -169,6 +169,9 @@ class ProfileSetupController extends Controller
 
             $path = $request->file('profile_picture')->store('profile-pictures', 'public');
             $validated['profile_picture'] = $path;
+        } else {
+            // Keep existing profile picture when editing without uploading a new one
+            unset($validated['profile_picture']);
         }
 
         $user->update($validated);

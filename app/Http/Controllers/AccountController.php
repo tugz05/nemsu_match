@@ -171,13 +171,16 @@ class AccountController extends Controller
             }
         }
 
-        // Handle profile picture upload
+        // Handle profile picture upload: only update when a new file is provided
         if ($request->hasFile('profile_picture')) {
             if ($user->profile_picture) {
                 Storage::disk('public')->delete($user->profile_picture);
             }
             $path = $request->file('profile_picture')->store('profile-pictures', 'public');
             $validated['profile_picture'] = $path;
+        } else {
+            // Keep existing profile picture when editing without uploading a new one
+            unset($validated['profile_picture']);
         }
 
         // Update user (array fields are cast to JSON by User model)
