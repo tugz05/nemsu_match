@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Course;
 use App\Models\Interest;
 use App\Models\Post;
+use App\Services\NearbyMatchService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -73,6 +74,8 @@ class AccountController extends Controller
                 'academic_program' => $user->academic_program,
                 'year_level' => $user->year_level,
                 'profile_picture' => $user->profile_picture,
+                'nearby_match_enabled' => (bool) $user->nearby_match_enabled,
+                'nearby_match_radius_m' => (int) ($user->nearby_match_radius_m ?? 1000),
                 'bio' => $user->bio,
                 'date_of_birth' => $user->date_of_birth,
                 'gender' => $user->gender,
@@ -187,5 +190,63 @@ class AccountController extends Controller
         $user->update($validated);
 
         return back()->with('success', 'Profile updated successfully!');
+    }
+
+    /**
+     * Update user's location (geolocation). Optionally triggers nearby-match notifications.
+     */
+    public function updateLocation(Request $request, NearbyMatchService $nearbyMatch)
+    {
+        $validated = $request->validate([
+            'latitude' => 'required|numeric|between:-90,90',
+            'longitude' => 'required|numeric|between:-180,180',
+        ]);
+
+        $user = Auth::user();
+        $nearbyMatch->updateLocationAndNotify(
+            $user,
+            (float) $validated['latitude'],
+            (float) $validated['longitude']
+        );
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Get nearby-match preferences (enabled, radius).
+     */
+    public function getNearbyMatchSettings()
+    {
+        $user = Auth::user();
+
+        return response()->json([
+            'nearby_match_enabled' => (bool) $user->nearby_match_enabled,
+            'nearby_match_radius_m' => (int) ($user->nearby_match_radius_m ?? 1000),
+        ]);
+    }
+
+    /**
+     * Update nearby-match preferences.
+     */
+    public function updateNearbyMatchSettings(Request $request)
+    {
+        $validated = $request->validate([
+            'nearby_match_enabled' => 'boolean',
+            'nearby_match_radius_m' => 'integer|min:500|max:2000',
+        ]);
+
+        $user = Auth::user();
+        if (array_key_exists('nearby_match_enabled', $validated)) {
+            $user->nearby_match_enabled = $validated['nearby_match_enabled'];
+        }
+        if (array_key_exists('nearby_match_radius_m', $validated)) {
+            $user->nearby_match_radius_m = $validated['nearby_match_radius_m'];
+        }
+        $user->save();
+
+        return response()->json([
+            'nearby_match_enabled' => (bool) $user->nearby_match_enabled,
+            'nearby_match_radius_m' => (int) $user->nearby_match_radius_m,
+        ]);
     }
 }

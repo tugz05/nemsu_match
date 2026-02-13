@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { Head, router, useForm } from '@inertiajs/vue3';
-import { User, Mail, MapPin, GraduationCap, Calendar, Heart, Book, Target, Trophy, Camera, Edit2, LogOut, ChevronRight, ChevronLeft, Settings, Plus, Trash2 } from 'lucide-vue-next';
+import { User, Mail, MapPin, GraduationCap, Calendar, Heart, Book, Target, Trophy, Camera, Edit2, LogOut, ChevronRight, ChevronLeft, Settings, Plus, Trash2, MapPinned, Bell } from 'lucide-vue-next';
 import TagsInput from '@/components/ui/tags-input/TagsInput.vue';
 import { profilePictureSrc } from '@/composables/useProfilePictureSrc';
+import { useBrowserNotifications } from '@/composables/useBrowserNotifications';
 import { useCsrfToken } from '@/composables/useCsrfToken';
 import { BottomNav, FullscreenImageViewer } from '@/components/feed';
 
@@ -39,6 +40,8 @@ const props = defineProps<{
         followers_count?: number;
         posts_count?: number;
         member_since?: string | null;
+        nearby_match_enabled?: boolean;
+        nearby_match_radius_m?: number;
     };
 }>();
 
@@ -86,6 +89,104 @@ const fileInput = ref<HTMLInputElement | null>(null);
 const activeTab = ref<'gallery' | 'about'>('about');
 const showSettingsMenu = ref(false);
 const showRequirePictureDialog = ref(false);
+
+// Browser notifications (native Notification API)
+const browserNotif = useBrowserNotifications();
+
+async function toggleBrowserNotifications() {
+    if (browserNotif.isEnabled) {
+        browserNotif.setEnabled(false);
+        return;
+    }
+    const result = await browserNotif.requestPermission();
+    if (result !== 'granted') {
+        browserNotif.refreshPermission();
+    }
+}
+
+// Nearby match: preferences (synced from props, updated via API)
+const nearbyMatchEnabled = ref(!!props.user.nearby_match_enabled);
+const nearbyMatchRadiusM = ref(props.user.nearby_match_radius_m ?? 1000);
+const nearbyMatchSaving = ref(false);
+const locationError = ref<string | null>(null);
+const locationUpdating = ref(false);
+
+const radiusOptions = [
+    { value: 500, label: '500 m' },
+    { value: 1000, label: '1 km' },
+    { value: 1500, label: '1.5 km' },
+    { value: 2000, label: '2 km' },
+];
+
+async function saveNearbyMatchSettings() {
+    nearbyMatchSaving.value = true;
+    locationError.value = null;
+    try {
+        const res = await fetch('/api/account/nearby-match-settings', {
+            method: 'PUT',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': getCsrfToken(),
+                Accept: 'application/json',
+            },
+            body: JSON.stringify({
+                nearby_match_enabled: nearbyMatchEnabled.value,
+                nearby_match_radius_m: nearbyMatchRadiusM.value,
+            }),
+        });
+        if (res.ok && nearbyMatchEnabled.value) {
+            await reportLocation();
+        }
+    } catch (e) {
+        console.error(e);
+    } finally {
+        nearbyMatchSaving.value = false;
+    }
+}
+
+function onNearbyMatchToggle() {
+    nearbyMatchEnabled.value = !nearbyMatchEnabled.value;
+    saveNearbyMatchSettings();
+}
+
+async function reportLocation() {
+    if (!navigator.geolocation) {
+        locationError.value = 'Location is not supported by your device.';
+        return;
+    }
+    locationUpdating.value = true;
+    locationError.value = null;
+    navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+            try {
+                const res = await fetch('/api/account/location', {
+                    method: 'PUT',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': getCsrfToken(),
+                        Accept: 'application/json',
+                    },
+                    body: JSON.stringify({
+                        latitude: pos.coords.latitude,
+                        longitude: pos.coords.longitude,
+                    }),
+                });
+                if (!res.ok) locationError.value = 'Could not update location.';
+            } catch (e) {
+                locationError.value = 'Could not update location.';
+            } finally {
+                locationUpdating.value = false;
+            }
+        },
+        () => {
+            locationError.value = 'Location permission denied or unavailable.';
+            locationUpdating.value = false;
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+    );
+}
 
 // Gallery (Create / Delete, Instagram-style grid)
 const getCsrfToken = useCsrfToken();
@@ -296,11 +397,22 @@ function onDocumentClick(e: MouseEvent) {
 onMounted(() => document.addEventListener('click', onDocumentClick));
 onUnmounted(() => document.removeEventListener('click', onDocumentClick));
 
+watch(
+    () => [props.user.nearby_match_enabled, props.user.nearby_match_radius_m],
+    ([enabled, radius]) => {
+        nearbyMatchEnabled.value = !!enabled;
+        nearbyMatchRadiusM.value = (radius as number) ?? 1000;
+    }
+);
+
 onMounted(() => {
     const params = new URLSearchParams(window.location.search);
     const requiresPicture = params.get('require_profile_picture') === '1';
     if (requiresPicture && !props.user.profile_picture) {
         showRequirePictureDialog.value = true;
+    }
+    if (props.user.nearby_match_enabled) {
+        reportLocation();
     }
 });
 </script>
@@ -414,6 +526,87 @@ onMounted(() => {
 
             <!-- Tab content: About -->
             <div v-show="activeTab === 'about'" class="space-y-6">
+                <!-- Nearby match notifications -->
+                <div class="bg-white rounded-2xl shadow-lg p-6">
+                    <h3 class="text-lg font-bold text-gray-900 mb-2 flex items-center gap-2">
+                        <MapPinned class="w-5 h-5 text-blue-600" />
+                        Match nearby
+                    </h3>
+                    <p class="text-sm text-gray-600 mb-4">
+                        Get notified when a mutual match is within your chosen distance—great for meeting up or studying together on campus.
+                    </p>
+                    <div class="flex items-center justify-between gap-4 mb-3">
+                        <span class="text-sm font-medium text-gray-700">Notify me when a match is nearby</span>
+                        <button
+                            type="button"
+                            role="switch"
+                            :aria-checked="nearbyMatchEnabled"
+                            @click="onNearbyMatchToggle"
+                            :disabled="nearbyMatchSaving"
+                            class="relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+                            :class="nearbyMatchEnabled ? 'bg-blue-600' : 'bg-gray-200'"
+                        >
+                            <span
+                                class="pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition"
+                                :class="nearbyMatchEnabled ? 'translate-x-5' : 'translate-x-1'"
+                            />
+                        </button>
+                    </div>
+                    <div v-if="nearbyMatchEnabled" class="mt-3 pt-3 border-t border-gray-100">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Notification radius</label>
+                        <select
+                            v-model.number="nearbyMatchRadiusM"
+                            @change="saveNearbyMatchSettings"
+                            :disabled="nearbyMatchSaving"
+                            class="w-full px-4 py-2.5 border-2 border-gray-200 rounded-xl focus:border-blue-500 outline-none text-sm"
+                        >
+                            <option v-for="opt in radiusOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                        </select>
+                    </div>
+                    <p v-if="locationError" class="mt-2 text-sm text-amber-600">{{ locationError }}</p>
+                    <p v-if="locationUpdating" class="mt-2 text-sm text-gray-500">Updating location…</p>
+                    <p class="mt-2 text-xs text-gray-500">You can turn this off anytime. Location is only used to detect when you and a match are within your chosen distance.</p>
+                </div>
+
+                <!-- Browser notifications -->
+                <div class="bg-white rounded-2xl shadow-lg p-6">
+                    <h3 class="text-lg font-bold text-gray-900 mb-2 flex items-center gap-2">
+                        <Bell class="w-5 h-5 text-blue-600" />
+                        Browser notifications
+                    </h3>
+                    <p class="text-sm text-gray-600 mb-4">
+                        Get notified in your browser for new messages, matches, likes, and more—even when the tab is in the background.
+                    </p>
+                    <div v-if="!browserNotif.isSupported" class="text-sm text-amber-600">
+                        Your browser doesn't support notifications.
+                    </div>
+                    <template v-else>
+                        <div class="flex items-center justify-between gap-4 mb-3">
+                            <span class="text-sm font-medium text-gray-700">Enable browser notifications</span>
+                            <button
+                                type="button"
+                                role="switch"
+                                :aria-checked="browserNotif.isEnabled"
+                                @click="toggleBrowserNotifications"
+                                :disabled="browserNotif.permission === 'denied' && !browserNotif.isEnabled"
+                                class="relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+                                :class="browserNotif.isEnabled ? 'bg-blue-600' : 'bg-gray-200'"
+                            >
+                                <span
+                                    class="pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition"
+                                    :class="browserNotif.isEnabled ? 'translate-x-5' : 'translate-x-1'"
+                                />
+                            </button>
+                        </div>
+                        <p v-if="browserNotif.permission === 'denied'" class="text-sm text-amber-600">
+                            Notifications were blocked. Enable them in your browser settings for this site, then turn this on again.
+                        </p>
+                        <p v-else-if="browserNotif.permission === 'default' && !browserNotif.isEnabled" class="text-sm text-gray-500">
+                            Turn on to allow this site to show notifications (you'll be asked for permission).
+                        </p>
+                    </template>
+                </div>
+
                 <!-- Bio -->
                 <div class="bg-white rounded-2xl shadow-lg p-6">
                     <h3 class="text-sm font-bold text-gray-900 mb-2">Bio</h3>

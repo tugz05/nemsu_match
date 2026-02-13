@@ -127,6 +127,17 @@ Route::post('api/account/update', [AccountController::class, 'update'])
     ->middleware(['auth', 'verified', 'profile.completed'])
     ->name('account.update');
 
+// Location & nearby-match (same middleware as account)
+Route::put('api/account/location', [AccountController::class, 'updateLocation'])
+    ->middleware(['auth', 'verified', 'profile.completed'])
+    ->name('account.location');
+Route::get('api/account/nearby-match-settings', [AccountController::class, 'getNearbyMatchSettings'])
+    ->middleware(['auth', 'verified', 'profile.completed'])
+    ->name('account.nearby-match-settings');
+Route::put('api/account/nearby-match-settings', [AccountController::class, 'updateNearbyMatchSettings'])
+    ->middleware(['auth', 'verified', 'profile.completed'])
+    ->name('account.nearby-match-settings.update');
+
 // User search & follow + Matchmaking
 Route::middleware(['auth', 'verified', 'profile.completed'])->group(function () {
     Route::get('api/users/search', [UserController::class, 'search'])->name('users.search');

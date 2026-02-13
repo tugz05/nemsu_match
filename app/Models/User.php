@@ -64,6 +64,11 @@ class User extends Authenticatable
         'disabled_at',
         'disabled_by',
         'last_seen_at',
+        'latitude',
+        'longitude',
+        'location_updated_at',
+        'nearby_match_enabled',
+        'nearby_match_radius_m',
     ];
 
     /**
@@ -102,6 +107,8 @@ class User extends Authenticatable
             'disabled_at' => 'datetime',
             'preferred_age_min' => 'integer',
             'preferred_age_max' => 'integer',
+            'nearby_match_enabled' => 'boolean',
+            'location_updated_at' => 'datetime',
             'courses' => 'array',
             'research_interests' => 'array',
             'extracurricular_activities' => 'array',

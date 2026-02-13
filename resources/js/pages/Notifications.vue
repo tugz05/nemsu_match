@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { Head, router } from '@inertiajs/vue3';
-import { Bell, ChevronLeft, MoreVertical } from 'lucide-vue-next';
+import { Bell, BookOpen, ChevronLeft, Heart, MapPin, MessageCircle, MoreVertical, Smile, UserPlus } from 'lucide-vue-next';
 import { profilePictureSrc } from '@/composables/useProfilePictureSrc';
 import { BottomNav } from '@/components/feed';
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications';
@@ -29,6 +29,8 @@ interface NotificationItem {
         is_reply?: boolean;
         is_reply_to_you?: boolean;
         intent?: string;
+        distance_m?: number;
+        distance_text?: string;
     } | null;
     read_at: string | null;
     created_at: string;
@@ -163,6 +165,10 @@ function actionLine(n: NotificationItem): string {
             const pct = score != null ? `${score}%` : '70%+';
             return `${atName} has you as a ${pct} match!`;
         }
+        case 'nearby_match': {
+            const dist = (d as { distance_text?: string }).distance_text;
+            return dist ? `Hey! ${atName} is nearby (${dist})` : `Hey! A match (${atName}) is nearby.`;
+        }
         default:
             return `${atName} interacted with you`;
     }
@@ -252,6 +258,10 @@ function goToNotification(n: NotificationItem) {
         router.visit('/like-you?tab=discover');
         return;
     }
+    if (n.type === 'nearby_match') {
+        router.visit(`/like-you?tab=matches&show_match=${n.from_user_id}`);
+        return;
+    }
     if (n.type === 'message' || n.type === 'message_request' || n.type === 'message_request_accepted') {
         const conversationId = n.notifiable_type === 'conversation' ? n.notifiable_id : n.data?.conversation_id;
         if (conversationId) router.visit(`/chat?conversation=${conversationId}`);
@@ -301,6 +311,8 @@ function message(n: NotificationItem): string {
             const pct = score != null ? `${score}%` : '70%+';
             return `${name} has you as a ${pct} match!`;
         }
+        case 'nearby_match':
+            return `Hey! ${name} is nearby. A match is in your area—say hi or plan to meet up!`;
         default:
             return `${name} interacted with you`;
     }
@@ -336,6 +348,8 @@ function specLabel(n: NotificationItem): string {
             return 'New match';
         case 'high_compatibility_match':
             return 'High match';
+        case 'nearby_match':
+            return 'Match nearby';
         default:
             return 'Activity';
     }
@@ -363,6 +377,8 @@ function icon(n: NotificationItem) {
         case 'message_request':
         case 'message_request_accepted':
             return MessageCircle;
+        case 'nearby_match':
+            return MapPin;
         default:
             return Bell;
     }

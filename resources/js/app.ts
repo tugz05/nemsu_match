@@ -4,7 +4,10 @@ import type { DefineComponent } from 'vue';
 import { createApp, h } from 'vue';
 import '../css/app.css';
 import { initializeTheme } from './composables/useAppearance';
+import { showBrowserNotificationIfAllowed } from './composables/useBrowserNotifications';
+import type { RealtimeNotificationPayload } from './composables/useRealtimeNotifications';
 import './echo';
+import { getEcho } from './echo';
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
 
@@ -56,6 +59,53 @@ function subscribeToAppStatus() {
 // Store Inertia page props globally for app status listener
 router.on('navigate', (event) => {
     (window as any).inertiaPageProps = event.detail.page.props;
+});
+
+// Global realtime notifications: subscribe to user channel when authenticated, show browser notification when enabled
+let notificationChannelLeave: (() => void) | null = null;
+let subscribedUserId: number | null = null;
+
+router.on('navigate', (event) => {
+    const props = event.detail.page.props as { auth?: { user?: { id?: number } } };
+    const userId = props.auth?.user?.id as number | undefined;
+
+    const Echo = getEcho();
+    if (!Echo || typeof userId !== 'number') {
+        if (notificationChannelLeave) {
+            notificationChannelLeave();
+            notificationChannelLeave = null;
+            subscribedUserId = null;
+        }
+        return;
+    }
+    if (subscribedUserId === userId) return;
+
+    if (notificationChannelLeave) {
+        notificationChannelLeave();
+        notificationChannelLeave = null;
+    }
+    subscribedUserId = userId;
+
+    const channel = Echo.private(`user.${userId}`);
+    channel.listen('.NotificationSent', (e: RealtimeNotificationPayload & { id?: number; type?: string }) => {
+        const payload: RealtimeNotificationPayload = {
+            id: e.id ?? 0,
+            type: e.type ?? 'unknown',
+            from_user_id: e.from_user_id,
+            from_user: e.from_user ?? null,
+            notifiable_type: e.notifiable_type,
+            notifiable_id: e.notifiable_id,
+            data: e.data ?? null,
+            read_at: e.read_at ?? null,
+            created_at: e.created_at,
+        };
+        window.dispatchEvent(new CustomEvent('realtime-notification', { detail: payload }));
+        showBrowserNotificationIfAllowed(payload, appName);
+    });
+    notificationChannelLeave = () => {
+        Echo.leave(`user.${userId}`);
+        subscribedUserId = null;
+    };
 });
 
 // Initialize app status subscription
