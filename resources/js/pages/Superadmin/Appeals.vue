@@ -67,7 +67,6 @@ function getCsrfToken(): string {
 async function reviewAppeal(appealId: number, decision: 'approved' | 'rejected') {
     if (loading.value) return;
     loading.value = true;
-    reviewingId.value = appealId;
     try {
         const res = await fetch(`/superadmin/appeals/${appealId}/review`, {
             method: 'POST',
