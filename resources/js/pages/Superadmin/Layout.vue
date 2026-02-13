@@ -7,6 +7,7 @@ import {
     UserCog, 
     ShieldAlert,
     UserX,
+    FileQuestion,
     Settings, 
     Menu, 
     X, 
@@ -23,6 +24,7 @@ const navigation = [
     { name: 'Users', href: '/superadmin/users', icon: Users },
     { name: 'Reported Users', href: '/superadmin/reported-users', icon: ShieldAlert },
     { name: 'Disabled Accounts', href: '/superadmin/disabled-users', icon: UserX },
+    { name: 'Appeals', href: '/superadmin/appeals', icon: FileQuestion },
     { name: 'Admins & Editors', href: '/superadmin/admins', icon: UserCog },
     { name: 'Settings', href: '/superadmin/settings', icon: Settings },
 ];

@@ -13,6 +13,39 @@ use Inertia\Response;
 
 class ReportController extends Controller
 {
+    public function appeals(Request $request): Response
+    {
+        $status = (string) $request->input('status', 'pending');
+        $search = trim((string) $request->input('search', ''));
+
+        $query = UserReportAppeal::query()
+            ->with([
+                'user:id,display_name,fullname,email,profile_picture,is_disabled,disabled_reason,disabled_at',
+                'report:id,reported_user_id,reason,status',
+            ]);
+
+        if ($status !== '' && $status !== 'all') {
+            $query->where('status', $status);
+        }
+        if ($search !== '') {
+            $query->whereHas('user', function ($q) use ($search): void {
+                $q->where('display_name', 'like', "%{$search}%")
+                    ->orWhere('fullname', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%");
+            });
+        }
+
+        $appeals = $query->latest()->paginate(15)->withQueryString();
+
+        return Inertia::render('Superadmin/Appeals', [
+            'appeals' => $appeals,
+            'filters' => [
+                'status' => $status,
+                'search' => $search,
+            ],
+        ]);
+    }
+
     public function reportedUsers(Request $request): Response
     {
         $status = (string) $request->input('status', 'pending');

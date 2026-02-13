@@ -240,6 +240,9 @@ Route::middleware(['auth', 'verified', 'superadmin'])->prefix('superadmin')->nam
     Route::post('users/{user}/toggle-status', [\App\Http\Controllers\Superadmin\UserController::class, 'toggleStatus'])->name('users.toggle-status');
     Route::delete('users/{user}', [\App\Http\Controllers\Superadmin\UserController::class, 'destroy'])->name('users.destroy');
 
+    // Appeals (view & accept/reject)
+    Route::get('appeals', [SuperadminReportController::class, 'appeals'])->name('appeals.index');
+
     // Reported users & disabled accounts
     Route::get('reported-users', [SuperadminReportController::class, 'reportedUsers'])->name('reported-users.index');
     Route::get('reported-users/{report}', [SuperadminReportController::class, 'details'])->name('reported-users.details');
