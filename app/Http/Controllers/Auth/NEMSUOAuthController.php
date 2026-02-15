@@ -48,7 +48,7 @@ class NEMSUOAuthController extends Controller
             'state' => csrf_token(), // CSRF protection
         ];
 
-        $googleAuthUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query($params);
+        $googleAuthUrl = 'https://accounts.google.com/o/oauth2/v2/auth?'.http_build_query($params);
 
         return redirect($googleAuthUrl);
     }
@@ -62,7 +62,7 @@ class NEMSUOAuthController extends Controller
             // Get authorization code from Google
             $code = $request->input('code');
 
-            if (!$code) {
+            if (! $code) {
                 return redirect()->route('home')->withErrors([
                     'error' => 'Authorization failed. Please try again.',
                 ]);
@@ -77,7 +77,7 @@ class NEMSUOAuthController extends Controller
                 'grant_type' => 'authorization_code',
             ]);
 
-            if (!$tokenResponse->successful()) {
+            if (! $tokenResponse->successful()) {
                 throw new \Exception('Failed to obtain access token');
             }
 
@@ -87,7 +87,7 @@ class NEMSUOAuthController extends Controller
             // Get user info from Google
             $userResponse = \Http::withToken($accessToken)->get('https://www.googleapis.com/oauth2/v2/userinfo');
 
-            if (!$userResponse->successful()) {
+            if (! $userResponse->successful()) {
                 throw new \Exception('Failed to get user info');
             }
 
@@ -135,18 +135,18 @@ class NEMSUOAuthController extends Controller
             }
 
             // Check if terms have been accepted (required before using the app)
-            if (!$user->terms_accepted_at) {
+            if (! $user->terms_accepted_at) {
                 return redirect()->route('consent.show');
             }
 
             // Main route when authenticated: Browse (preferences-based list of users)
-            return redirect()->route('browse')->with('success', 'Welcome back, ' . ($user->display_name ?? $user->name) . '!');
+            return redirect()->route('browse')->with('success', 'Welcome back, '.($user->display_name ?? $user->name).'!');
 
         } catch (\Exception $e) {
-            \Log::error('OAuth callback failed: ' . $e->getMessage());
+            \Log::error('OAuth callback failed: '.$e->getMessage());
 
             return redirect()->route('home')->withErrors([
-                'error' => 'Authentication failed: ' . $e->getMessage(),
+                'error' => 'Authentication failed: '.$e->getMessage(),
             ]);
         }
     }

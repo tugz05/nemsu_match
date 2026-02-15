@@ -3,12 +3,12 @@
 namespace App\Http\Controllers\Superadmin;
 
 use App\Http\Controllers\Controller;
-use App\Models\User;
-use App\Models\UserMatch;
-use App\Models\SwipeAction;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\Post;
+use App\Models\SwipeAction;
+use App\Models\User;
+use App\Models\UserMatch;
 use Inertia\Inertia;
 use Inertia\Response;
 

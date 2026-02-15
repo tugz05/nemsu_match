@@ -22,8 +22,8 @@ class AppSetting extends Model
     {
         return Cache::remember("app_setting_{$key}", 3600, function () use ($key, $default) {
             $setting = static::where('key', $key)->first();
-            
-            if (!$setting) {
+
+            if (! $setting) {
                 return $default;
             }
 
@@ -67,8 +67,8 @@ class AppSetting extends Model
 
         foreach ($settings as $setting) {
             $group = $setting->group ?? 'general';
-            
-            if (!isset($grouped[$group])) {
+
+            if (! isset($grouped[$group])) {
                 $grouped[$group] = [];
             }
 

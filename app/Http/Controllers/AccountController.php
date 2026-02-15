@@ -23,18 +23,18 @@ class AccountController extends Controller
 
         // Fetch raw row from DB so we get exact JSON strings (bypass Eloquent entirely)
         $row = DB::table('users')->where('id', $user->id)->first();
-        if (!$row) {
+        if (! $row) {
             return redirect()->route('home');
         }
 
-        $decode = function($raw) {
+        $decode = function ($raw) {
             if ($raw === null || $raw === '') {
                 return [];
             }
             if (is_array($raw)) {
                 return array_values(array_filter($raw, 'is_string'));
             }
-            if (!is_string($raw)) {
+            if (! is_string($raw)) {
                 return [];
             }
             $decoded = json_decode($raw, true);
@@ -44,8 +44,10 @@ class AccountController extends Controller
             // Handle double-encoded JSON
             if (is_string($decoded)) {
                 $decoded2 = json_decode($decoded, true);
+
                 return is_array($decoded2) ? array_values(array_filter($decoded2, 'is_string')) : [];
             }
+
             return [];
         };
 
@@ -108,8 +110,8 @@ class AccountController extends Controller
         $user = Auth::user();
 
         $validated = $request->validate([
-            'display_name' => 'sometimes|string|max:255|unique:users,display_name,' . $user->id,
-            'fullname' => 'sometimes|string|max:255|unique:users,fullname,' . $user->id,
+            'display_name' => 'sometimes|string|max:255|unique:users,display_name,'.$user->id,
+            'fullname' => 'sometimes|string|max:255|unique:users,fullname,'.$user->id,
             'campus' => 'sometimes|string|max:255',
             'academic_program' => 'sometimes|string|max:255',
             'year_level' => 'sometimes|string|max:255',
@@ -148,27 +150,27 @@ class AccountController extends Controller
         }
 
         // Update suggestion tables for autocomplete
-        if (!empty($validated['courses'])) {
+        if (! empty($validated['courses'])) {
             foreach ($validated['courses'] as $course) {
                 Course::incrementOrCreate($course);
             }
         }
-        if (!empty($validated['research_interests'])) {
+        if (! empty($validated['research_interests'])) {
             foreach ($validated['research_interests'] as $interest) {
                 Interest::incrementOrCreate($interest, 'research');
             }
         }
-        if (!empty($validated['extracurricular_activities'])) {
+        if (! empty($validated['extracurricular_activities'])) {
             foreach ($validated['extracurricular_activities'] as $activity) {
                 Interest::incrementOrCreate($activity, 'extracurricular');
             }
         }
-        if (!empty($validated['academic_goals'])) {
+        if (! empty($validated['academic_goals'])) {
             foreach ($validated['academic_goals'] as $goal) {
                 Interest::incrementOrCreate($goal, 'academic_goal');
             }
         }
-        if (!empty($validated['interests'])) {
+        if (! empty($validated['interests'])) {
             foreach ($validated['interests'] as $interest) {
                 Interest::incrementOrCreate($interest, 'hobby');
             }

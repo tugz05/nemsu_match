@@ -6,8 +6,8 @@ use App\Models\Superadmin\AppSetting;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Symfony\Component\HttpFoundation\Response;
 use Inertia\Inertia;
+use Symfony\Component\HttpFoundation\Response;
 
 class CheckMaintenanceMode
 {
@@ -30,6 +30,7 @@ class CheckMaintenanceMode
             if ($user && $user->isStaff()) {
                 return $next($request);
             }
+
             return Inertia::render('MaintenancePage')->toResponse($request);
         }
 

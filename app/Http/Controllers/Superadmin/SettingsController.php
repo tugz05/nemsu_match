@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers\Superadmin;
 
-use App\Http\Controllers\Controller;
-use App\Models\Superadmin\AppSetting;
 use App\Events\MaintenanceModeChanged;
 use App\Events\PreRegistrationModeChanged;
+use App\Http\Controllers\Controller;
+use App\Models\Superadmin\AppSetting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
@@ -14,8 +14,11 @@ use Inertia\Response;
 class SettingsController extends Controller
 {
     private const BRANDING_DISK = 'public';
+
     private const BRANDING_DIR = 'branding';
+
     private const ALLOWED_MIMES = ['image/png', 'image/svg+xml'];
+
     private const ALLOWED_EXTENSIONS = ['png', 'svg'];
 
     /**
@@ -29,8 +32,8 @@ class SettingsController extends Controller
         $headerIconPath = AppSetting::get('header_icon', '');
 
         $branding = [
-            'app_logo_url' => $logoPath ? asset('storage/' . ltrim($logoPath, '/')) : null,
-            'header_icon_url' => $headerIconPath ? asset('storage/' . ltrim($headerIconPath, '/')) : null,
+            'app_logo_url' => $logoPath ? asset('storage/'.ltrim($logoPath, '/')) : null,
+            'header_icon_url' => $headerIconPath ? asset('storage/'.ltrim($headerIconPath, '/')) : null,
         ];
 
         return Inertia::render('Superadmin/Settings', [
@@ -49,7 +52,7 @@ class SettingsController extends Controller
         ]);
 
         $value = $request->value;
-        
+
         // Handle boolean conversion
         if ($appSetting->type === 'boolean') {
             $value = $value === true || $value === 'true' || $value === '1' ? 'true' : 'false';
@@ -109,7 +112,7 @@ class SettingsController extends Controller
     {
         // Prevent deletion of critical settings
         $criticalSettings = ['maintenance_mode', 'allow_registration'];
-        
+
         if (in_array($appSetting->key, $criticalSettings)) {
             return response()->json([
                 'message' => 'Cannot delete critical system settings',
@@ -145,23 +148,23 @@ class SettingsController extends Controller
             $setting = AppSetting::find($settingData['id']);
             if ($setting) {
                 $value = $settingData['value'];
-                
+
                 // Handle boolean conversion
                 if ($setting->type === 'boolean') {
                     $value = $value === true || $value === 'true' || $value === '1' ? 'true' : 'false';
                 }
-                
+
                 // Track mode changes
                 if ($setting->key === 'maintenance_mode') {
                     $maintenanceModeChanged = true;
                     $newMaintenanceValue = $value === 'true';
                 }
-                
+
                 if ($setting->key === 'pre_registration_mode') {
                     $preRegistrationModeChanged = true;
                     $newPreRegValue = $value === 'true';
                 }
-                
+
                 $setting->update(['value' => $value]);
             }
         }
@@ -195,22 +198,22 @@ class SettingsController extends Controller
         $file = $request->file('file');
         $ext = strtolower($file->getClientOriginalExtension());
 
-        if (!in_array($ext, self::ALLOWED_EXTENSIONS, true)) {
+        if (! in_array($ext, self::ALLOWED_EXTENSIONS, true)) {
             return response()->json([
                 'message' => 'Only PNG and SVG files are allowed.',
             ], 422);
         }
 
         $key = $request->input('type') === 'logo' ? 'app_logo' : 'header_icon';
-        $filename = $request->input('type') === 'logo' ? 'logo.' . $ext : 'header-icon.' . $ext;
-        $path = self::BRANDING_DIR . '/' . $filename;
+        $filename = $request->input('type') === 'logo' ? 'logo.'.$ext : 'header-icon.'.$ext;
+        $path = self::BRANDING_DIR.'/'.$filename;
 
         Storage::disk(self::BRANDING_DISK)->putFileAs(self::BRANDING_DIR, $file, $filename);
 
         AppSetting::set($key, $path);
         AppSetting::clearCache();
 
-        $url = asset('storage/' . $path);
+        $url = asset('storage/'.$path);
 
         return response()->json([
             'message' => 'File uploaded successfully.',

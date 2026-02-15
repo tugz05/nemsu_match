@@ -8,7 +8,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class MessageRequest extends Model
 {
     public const STATUS_PENDING = 'pending';
+
     public const STATUS_ACCEPTED = 'accepted';
+
     public const STATUS_DECLINED = 'declined';
 
     protected $fillable = ['from_user_id', 'to_user_id', 'body', 'status'];

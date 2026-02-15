@@ -86,6 +86,9 @@
         ],
         "pre-package-uninstall": [
             "Illuminate\\Foundation\\ComposerScripts::prePackageUninstall"
+        ],
+        "open:admin-announcements": [
+            "@php -r \"$u='http://127.0.0.1:8000/admin/announcements'; if (stripos(PHP_OS, 'WIN') === 0) { pclose(popen('start ' . escapeshellarg($u), 'r')); } elseif (stripos(PHP_OS, 'DAR') === 0) { exec('open ' . escapeshellarg($u)); } else { exec('xdg-open ' . escapeshellarg($u)); }\""
         ]
     },
     "extra": {

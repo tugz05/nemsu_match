@@ -10,6 +10,7 @@ use App\Models\PostReport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
+use Inertia\Inertia; // Added this import
 
 class PostController extends Controller
 {
@@ -39,7 +40,14 @@ class PostController extends Controller
 
         $payload['current_user_id'] = $authId;
 
-        return response()->json($payload);
+        // JSON for API consumers, Inertia page for normal visits (including admin link)
+        if ($request->wantsJson()) {
+            return response()->json($payload);
+        }
+
+        return Inertia::render('SocialFeed', [
+            'initialPosts' => $payload,
+        ]);
     }
 
     /**
@@ -52,6 +60,12 @@ class PostController extends Controller
         $item = $post->toArray();
         $item['is_followed_by_user'] = Auth::user()->isFollowing($post->user);
         $item['is_own_post'] = (int) $post->user_id === (int) $authId;
+
+        // Ensure single post view also supports Inertia if visited directly
+        if (!request()->wantsJson() && !request()->header('X-Inertia')) {
+            return Inertia::render('PostDetail', ['post' => $item]);
+        }
+
         return response()->json(['post' => $item]);
     }
 

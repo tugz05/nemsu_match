@@ -50,8 +50,8 @@ class HandleInertiaRequests extends Middleware
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
             'branding' => [
-                'app_logo_url' => $logoPath ? asset('storage/' . ltrim($logoPath, '/')) : null,
-                'header_icon_url' => $headerIconPath ? asset('storage/' . ltrim($headerIconPath, '/')) : null,
+                'app_logo_url' => $logoPath ? asset('storage/'.ltrim($logoPath, '/')) : null,
+                'header_icon_url' => $headerIconPath ? asset('storage/'.ltrim($headerIconPath, '/')) : null,
             ],
             'subscription' => [
                 'freemium_enabled' => $freemiumEnabled,
