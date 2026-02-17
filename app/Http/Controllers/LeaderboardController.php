@@ -55,7 +55,8 @@ class LeaderboardController extends Controller
     }
 
     /**
-     * Compute leaderboard for the given period. Excludes disabled users.
+     * Compute leaderboard for the given period.
+     * Includes all users registered on the platform (excludes only disabled and banned accounts).
      */
     private function computeLeaderboard(string $period): array
     {
@@ -86,11 +87,13 @@ class LeaderboardController extends Controller
             return [];
         }
 
+        // All registered users eligible for leaderboard: not disabled, not banned
         $users = User::query()
             ->whereIn('id', $userIds)
             ->where(function ($q) {
                 $q->where('is_disabled', false)->orWhereNull('is_disabled');
             })
+            ->whereNull('banned_at')
             ->get(['id', 'display_name', 'profile_picture'])
             ->keyBy('id');
 
