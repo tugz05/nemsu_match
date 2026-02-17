@@ -32,6 +32,7 @@ class LeaderboardController extends Controller
     /**
      * GET /api/leaderboard?period=day|week|month
      * Returns ranked users by likes received in the period (display_name, profile_picture, points, rank only).
+     * Platform-wide: includes all registered users (any gender/orientation). No filter by viewer preferences.
      */
     public function data(Request $request)
     {
@@ -56,7 +57,9 @@ class LeaderboardController extends Controller
 
     /**
      * Compute leaderboard for the given period.
-     * Includes all users registered on the platform (excludes only disabled and banned accounts).
+     * Platform-wide: counts every like received by any user. Includes all registered users
+     * (male, female, any orientation). Excludes only disabled and banned accounts.
+     * No filter by the current viewer's preferences or gender.
      */
     private function computeLeaderboard(string $period): array
     {
@@ -72,6 +75,7 @@ class LeaderboardController extends Controller
             SwipeAction::INTENT_STUDY_BUDDY,
         ];
 
+        // Count likes received by each user (all swipe_actions in period; no filter by who swiped or target gender)
         $ranked = DB::table('swipe_actions')
             ->whereIn('intent', $likeIntents)
             ->where('created_at', '>=', $since)
@@ -87,7 +91,7 @@ class LeaderboardController extends Controller
             return [];
         }
 
-        // All registered users eligible for leaderboard: not disabled, not banned
+        // Include all users who appear in the ranking: only exclude disabled and banned (no gender/preference filter)
         $users = User::query()
             ->whereIn('id', $userIds)
             ->where(function ($q) {
