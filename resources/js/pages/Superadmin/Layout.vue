@@ -9,6 +9,7 @@ import {
     UserX,
     FileQuestion,
     Settings, 
+    MapPin,
     Menu, 
     X, 
     LogOut,
@@ -26,6 +27,7 @@ const navigation = [
     { name: 'Disabled Accounts', href: '/superadmin/disabled-users', icon: UserX },
     { name: 'Appeals', href: '/superadmin/appeals', icon: FileQuestion },
     { name: 'Admins & Editors', href: '/superadmin/admins', icon: UserCog },
+    { name: 'Campuses', href: '/superadmin/campuses', icon: MapPin },
     { name: 'Settings', href: '/superadmin/settings', icon: Settings },
 ];
 

@@ -8,6 +8,7 @@ use App\Http\Controllers\ChatController;
 use App\Http\Controllers\GalleryController;
 use App\Http\Controllers\LeaderboardController;
 use App\Http\Controllers\MatchmakingController;
+use App\Http\Controllers\ProximityMatchController;
 use App\Http\Controllers\AnnouncementController; // Public API Controller
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PostController;
@@ -79,6 +80,14 @@ Route::get('leaderboard', [LeaderboardController::class, 'index'])
     ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('leaderboard');
 Route::get('api/leaderboard', [LeaderboardController::class, 'data'])
     ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('leaderboard.api');
+
+// Find Your Match (AI proximity match, same campus, base location)
+Route::get('find-your-match', [ProximityMatchController::class, 'index'])
+    ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('proximity-match');
+Route::get('api/proximity-match', [ProximityMatchController::class, 'data'])
+    ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('proximity-match.api');
+Route::post('api/proximity-match/reset', [ProximityMatchController::class, 'reset'])
+    ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('proximity-match.reset');
 
 // Disabled account info + appeal
 Route::middleware(['auth', 'verified'])->group(function () {
@@ -202,6 +211,13 @@ Route::middleware(['auth', 'verified', 'superadmin'])->prefix('superadmin')->nam
     Route::post('settings', [\App\Http\Controllers\Superadmin\SettingsController::class, 'store'])->name('settings.store');
     Route::put('settings/{appSetting}', [\App\Http\Controllers\Superadmin\SettingsController::class, 'update'])->name('settings.update');
     Route::delete('settings/{appSetting}', [\App\Http\Controllers\Superadmin\SettingsController::class, 'destroy'])->name('settings.destroy');
+    // Campuses (base locations for Find Your Match)
+    Route::get('campuses', [\App\Http\Controllers\Superadmin\CampusController::class, 'index'])->name('campuses.index');
+    Route::get('campuses/create', [\App\Http\Controllers\Superadmin\CampusController::class, 'create'])->name('campuses.create');
+    Route::post('campuses', [\App\Http\Controllers\Superadmin\CampusController::class, 'store'])->name('campuses.store');
+    Route::get('campuses/{campus}/edit', [\App\Http\Controllers\Superadmin\CampusController::class, 'edit'])->name('campuses.edit');
+    Route::put('campuses/{campus}', [\App\Http\Controllers\Superadmin\CampusController::class, 'update'])->name('campuses.update');
+    Route::delete('campuses/{campus}', [\App\Http\Controllers\Superadmin\CampusController::class, 'destroy'])->name('campuses.destroy');
 });
 
 // --- ADMIN GROUP (UPDATED) ---

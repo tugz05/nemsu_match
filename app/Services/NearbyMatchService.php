@@ -2,13 +2,18 @@
 
 namespace App\Services;
 
+use App\Events\MatchProximityUpdated;
 use App\Events\NotificationSent;
 use App\Models\Notification;
 use App\Models\User;
+use App\Models\AiProximityMatch;
 use App\Models\UserMatch;
 
 class NearbyMatchService
 {
+    public function __construct(
+        private ProximityMatchService $proximityMatch
+    ) {}
     /** Minimum hours between "nearby match" notifications for the same pair. */
     public const NEARBY_NOTIFICATION_COOLDOWN_HOURS = 24;
 
@@ -42,11 +47,40 @@ class NearbyMatchService
             'location_updated_at' => now(),
         ]);
 
-        if (! $user->nearby_match_enabled) {
+        // Update AI match proximity in real-time (regardless of nearby_match_enabled)
+        $this->broadcastAiMatchProximity($user);
+
+        if ($user->nearby_match_enabled) {
+            $this->checkAndNotifyNearbyMatches($user);
+        }
+    }
+
+    /**
+     * Broadcast current proximity between the user and their AI match over Pusher.
+     */
+    protected function broadcastAiMatchProximity(User $user): void
+    {
+        $ai = AiProximityMatch::query()
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (! $ai || ! $ai->matchedUser) {
             return;
         }
 
-        $this->checkAndNotifyNearbyMatches($user);
+        $match = $ai->matchedUser;
+
+        $distance = $this->proximityMatch->distanceToMatchMeters($user, $match);
+        $percentage = $this->proximityMatch->matchProximityPercentage($user, $match);
+        $isNearby10m = $this->proximityMatch->isNearbyMatch($user, $match, 10);
+
+        broadcast(new MatchProximityUpdated(
+            $user,
+            $match,
+            $distance !== null ? (int) round($distance) : null,
+            $percentage,
+            $isNearby10m
+        ));
     }
 
     /**
