@@ -6,6 +6,7 @@ use App\Http\Controllers\Auth\NEMSUOAuthController;
 use App\Http\Controllers\Auth\AdminAuthController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\GalleryController;
+use App\Http\Controllers\LeaderboardController;
 use App\Http\Controllers\MatchmakingController;
 use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\NotificationController;
@@ -81,6 +82,12 @@ Route::get('like-you', function () {
 Route::get('browse', function () {
     return Inertia::render('Browse');
 })->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('browse');
+
+// Leaderboard - Most liked profiles (day/week/month)
+Route::get('leaderboard', [LeaderboardController::class, 'index'])
+    ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('leaderboard');
+Route::get('api/leaderboard', [LeaderboardController::class, 'data'])
+    ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('leaderboard.api');
 
 // Disabled account info + appeal
 Route::middleware(['auth', 'verified'])->group(function () {

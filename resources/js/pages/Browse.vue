@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
-import { Sparkles, MapPin, GraduationCap, Users, Bell, ShieldCheck } from 'lucide-vue-next';
+import { Sparkles, MapPin, GraduationCap, Users, Bell, ShieldCheck, Trophy } from 'lucide-vue-next';
 import { BottomNav, NotificationsDropdown } from '@/components/feed';
 import { profilePictureSrc } from '@/composables/useProfilePictureSrc';
 import { useCsrfToken } from '@/composables/useCsrfToken';
@@ -157,29 +157,43 @@ onMounted(() => {
                         {{ isPlus ? 'Plus' : 'Free' }}
                     </a>
                 </div>
-                <NotificationsDropdown
-                    v-model:open="showNotificationsDropdown"
-                    v-model:unread-count="unreadNotificationsCount"
-                    fallback-route="/browse"
-                    class="shrink-0"
-                >
-                    <template #trigger="{ toggle }">
-                        <button
-                            type="button"
-                            @click.stop="toggle"
-                            class="relative p-2 hover:bg-gray-100 rounded-full transition-colors"
-                            aria-label="Notifications"
-                        >
-                            <Bell class="w-6 h-6 text-gray-700" />
-                            <span
-                                v-if="unreadNotificationsCount > 0"
-                                class="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-blue-600 text-white text-xs font-bold rounded-full"
+                <div class="flex items-center gap-0.5 shrink-0">
+                    <button
+                        type="button"
+                        class="leaderboard-trophy-btn relative p-2.5 rounded-full transition-all duration-200 hover:bg-blue-50 hover:scale-110 focus:outline-none focus:ring-2 focus:ring-blue-400/50"
+                        aria-label="Leaderboard"
+                        @click="router.visit('/leaderboard')"
+                    >
+                        <span class="leaderboard-trophy-wrap relative inline-flex items-center justify-center">
+                            <span class="spark spark-1" aria-hidden="true" />
+                            <span class="spark spark-2" aria-hidden="true" />
+                            <span class="spark spark-3" aria-hidden="true" />
+                            <Trophy class="trophy-icon w-6 h-6 text-blue-600" />
+                        </span>
+                    </button>
+                    <NotificationsDropdown
+                        v-model:open="showNotificationsDropdown"
+                        v-model:unread-count="unreadNotificationsCount"
+                        fallback-route="/browse"
+                    >
+                        <template #trigger="{ toggle }">
+                            <button
+                                type="button"
+                                @click.stop="toggle"
+                                class="relative p-2 hover:bg-gray-100 rounded-full transition-colors"
+                                aria-label="Notifications"
                             >
-                                {{ unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount }}
-                            </span>
-                        </button>
-                    </template>
-                </NotificationsDropdown>
+                                <Bell class="w-6 h-6 text-gray-700" />
+                                <span
+                                    v-if="unreadNotificationsCount > 0"
+                                    class="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-blue-600 text-white text-xs font-bold rounded-full"
+                                >
+                                    {{ unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount }}
+                                </span>
+                            </button>
+                        </template>
+                    </NotificationsDropdown>
+                </div>
             </div>
         </div>
 
@@ -289,6 +303,45 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* Leaderboard trophy button – sparkling */
+.leaderboard-trophy-wrap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+}
+.trophy-icon {
+    position: relative;
+    z-index: 1;
+    animation: trophy-shine 2.5s ease-in-out infinite;
+}
+.spark {
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #fcd34d, #f59e0b);
+    box-shadow: 0 0 6px rgba(252, 211, 77, 0.8);
+    animation: sparkle 1.5s ease-in-out infinite;
+    pointer-events: none;
+}
+.spark-1 { top: 2px; right: 0; animation-delay: 0s; }
+.spark-2 { bottom: 0; left: 2px; animation-delay: 0.4s; }
+.spark-3 { top: 50%; left: -2px; margin-top: -2px; animation-delay: 0.8s; }
+@keyframes sparkle {
+    0%, 100% { opacity: 0.3; transform: scale(0.8); }
+    50% { opacity: 1; transform: scale(1.2); }
+}
+@keyframes trophy-shine {
+    0%, 100% { filter: brightness(1); }
+    50% { filter: brightness(1.15); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .trophy-icon { animation: none; }
+    .spark { animation: none; opacity: 0.6; }
+}
+
 @keyframes browse-card-in {
     from {
         opacity: 0;
