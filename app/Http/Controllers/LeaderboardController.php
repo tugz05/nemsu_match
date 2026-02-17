@@ -8,6 +8,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -92,14 +93,15 @@ class LeaderboardController extends Controller
         }
 
         // Include all users who appear in the ranking: only exclude disabled and banned (no gender/preference filter)
-        $users = User::query()
+        $userQuery = User::query()
             ->whereIn('id', $userIds)
             ->where(function ($q) {
                 $q->where('is_disabled', false)->orWhereNull('is_disabled');
-            })
-            ->whereNull('banned_at')
-            ->get(['id', 'display_name', 'profile_picture'])
-            ->keyBy('id');
+            });
+        if (Schema::hasColumn('users', 'banned_at')) {
+            $userQuery->whereNull('banned_at');
+        }
+        $users = $userQuery->get(['id', 'display_name', 'profile_picture'])->keyBy('id');
 
         $list = [];
         $rank = 1;
