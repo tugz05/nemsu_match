@@ -30,4 +30,3 @@ class EnsureAccountNotDisabled
         return $next($request);
     }
 }
-

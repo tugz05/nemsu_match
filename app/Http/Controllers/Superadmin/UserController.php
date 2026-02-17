@@ -112,7 +112,7 @@ class UserController extends Controller
         $request->validate([
             'display_name' => 'sometimes|string|max:255',
             'fullname' => 'sometimes|string|max:255',
-            'email' => 'sometimes|email|unique:users,email,' . $user->id,
+            'email' => 'sometimes|email|unique:users,email,'.$user->id,
             'gender' => 'sometimes|in:male,female,non-binary,prefer_not_to_say',
             'campus' => 'sometimes|string|max:255',
             'academic_program' => 'sometimes|string|max:255',
@@ -150,7 +150,7 @@ class UserController extends Controller
 
         // You could add a 'is_suspended' column to users table
         // For now, we'll use profile_completed as a proxy
-        
+
         return response()->json([
             'message' => 'User status updated',
         ]);

@@ -17,23 +17,25 @@ class EnsureProfileCompleted
     {
         $user = $request->user();
 
-        if (!$user) {
+        if (! $user) {
             return $next($request);
         }
 
         // Step 1: Profile must be completed first
-        if (!$user->profile_completed) {
-            if (!$request->routeIs('profile.setup') && !$request->routeIs('profile.store')) {
+        if (! $user->profile_completed) {
+            if (! $request->routeIs('profile.setup') && ! $request->routeIs('profile.store')) {
                 return redirect()->route('profile.setup');
             }
+
             return $next($request);
         }
 
         // Step 2: Terms and conditions must be accepted before using the app
-        if (!$user->terms_accepted_at) {
-            if (!$request->routeIs('consent.show') && !$request->routeIs('consent.accept')) {
+        if (! $user->terms_accepted_at) {
+            if (! $request->routeIs('consent.show') && ! $request->routeIs('consent.accept')) {
                 return redirect()->route('consent.show');
             }
+
             return $next($request);
         }
 

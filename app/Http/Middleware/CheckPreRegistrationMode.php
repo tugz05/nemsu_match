@@ -6,8 +6,8 @@ use App\Models\Superadmin\AppSetting;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Symfony\Component\HttpFoundation\Response;
 use Inertia\Inertia;
+use Symfony\Component\HttpFoundation\Response;
 
 class CheckPreRegistrationMode
 {
@@ -51,7 +51,7 @@ class CheckPreRegistrationMode
         $preRegistrationMode = AppSetting::get('pre_registration_mode', false);
         $allowRegistration = AppSetting::get('allow_registration', true);
 
-        if ($preRegistrationMode || !$allowRegistration) {
+        if ($preRegistrationMode || ! $allowRegistration) {
             $baseQuery = \App\Models\User::where('is_admin', false)->where('is_superadmin', false);
 
             // Count pre-registered users (only regular users, not admins)

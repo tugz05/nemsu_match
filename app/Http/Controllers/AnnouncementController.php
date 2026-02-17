@@ -5,87 +5,57 @@ namespace App\Http\Controllers;
 use App\Models\Announcement;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Inertia\Inertia;
 
 class AnnouncementController extends Controller
 {
     /**
-     * GET /api/announcements?page=1
-     * Public (authed) list of announcements; non-admin users only see published items.
+     * List announcements (JSON for public feed)
      */
     public function index(Request $request)
     {
-        $user = Auth::user();
-        $page = max(1, (int) $request->input('page', 1));
-        $perPage = 20;
+        $perPage = min((int) $request->input('per_page', 10), 50);
 
-        $query = Announcement::query()
-            ->with('creator:id,display_name,fullname,profile_picture')
+        $announcements = Announcement::with('creator:id,display_name,fullname,profile_picture')
             ->orderByDesc('is_pinned')
-            ->orderByDesc('published_at')
-            ->orderByDesc('id');
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
 
-        if (! ($user->is_admin ?? false)) {
-            $query->whereNotNull('published_at')
-                ->where('published_at', '<=', now());
-        }
-
-        $paginator = $query->paginate($perPage, ['*'], 'page', $page);
-
-        $data = collect($paginator->items())->map(function (Announcement $a): array {
-            return [
-                'id' => $a->id,
-                'title' => $a->title,
-                'body' => $a->body,
-                'is_pinned' => (bool) $a->is_pinned,
-                'published_at' => $a->published_at?->toIso8601String(),
-                'created_at' => $a->created_at?->toIso8601String(),
-                'creator' => $a->creator ? [
-                    'id' => $a->creator->id,
-                    'display_name' => $a->creator->display_name,
-                    'fullname' => $a->creator->fullname,
-                    'profile_picture' => $a->creator->profile_picture,
-                ] : null,
-            ];
-        })->values()->all();
-
-        return response()->json([
-            'data' => $data,
-            'current_page' => $paginator->currentPage(),
-            'last_page' => $paginator->lastPage(),
-            'per_page' => $paginator->perPage(),
-            'total' => $paginator->total(),
-        ]);
+        return response()->json($announcements);
     }
 
     /**
-     * POST /api/announcements
-     * Admin-only create announcement (defaults to publish now).
+     * Store a new Announcement
      */
     public function store(Request $request)
     {
-        $request->validate([
+        $validated = $request->validate([
             'title' => 'required|string|max:120',
             'body' => 'required|string|max:5000',
             'is_pinned' => 'sometimes|boolean',
             'publish_now' => 'sometimes|boolean',
         ]);
 
-        $user = Auth::user();
+        $publishNow = $request->boolean('publish_now', true);
 
-        $publishNow = (bool) ($request->input('publish_now', true));
-
-        $a = Announcement::create([
-            'created_by' => $user->id,
-            'title' => $request->input('title'),
-            'body' => $request->input('body'),
-            'is_pinned' => (bool) ($request->input('is_pinned', false)),
+        Announcement::create([
+            'created_by' => Auth::id(),
+            'title' => $validated['title'],
+            'body' => $validated['body'],
+            'is_pinned' => $request->boolean('is_pinned'),
             'published_at' => $publishNow ? now() : null,
         ]);
 
-        return response()->json([
-            'id' => $a->id,
-            'ok' => true,
-        ], 201);
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Delete an Announcement
+     */
+    public function destroy(Announcement $announcement)
+    {
+        $announcement->delete();
+
+        return response()->json(['success' => true]);
     }
 }
-

@@ -8,8 +8,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class SwipeAction extends Model
 {
     public const INTENT_IGNORED = 'ignored';
+
     public const INTENT_FRIEND = 'friend';
+
     public const INTENT_STUDY_BUDDY = 'study_buddy';
+
     public const INTENT_DATING = 'dating';
 
     protected $fillable = ['user_id', 'target_user_id', 'intent'];

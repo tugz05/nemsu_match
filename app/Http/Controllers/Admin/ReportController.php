@@ -21,22 +21,22 @@ class ReportController extends Controller
                     // Check mo sa database mo kung 'reason', 'description', o 'details' ang column name
                     // Dito ko nilagay pareho para sure na may makuha
                     'reason' => $report->reason ?? $report->description ?? 'No details provided',
-                    
-                    'user' => $report->reportedUser 
-                        ? ($report->reportedUser->fullname ?? $report->reportedUser->name ?? 'Unknown') 
+
+                    'user' => $report->reportedUser
+                        ? ($report->reportedUser->fullname ?? $report->reportedUser->name ?? 'Unknown')
                         : 'Unknown User',
 
-                    'reporter' => $report->reporter 
-                        ? ($report->reporter->fullname ?? $report->reporter->name ?? 'Anonymous') 
+                    'reporter' => $report->reporter
+                        ? ($report->reporter->fullname ?? $report->reporter->name ?? 'Anonymous')
                         : 'Anonymous',
-                    
+
                     'date' => $report->created_at->format('M d, Y'),
                     'status' => $report->status,
                 ];
             });
 
         return Inertia::render('Admin/Messagereport', [
-            'reports' => $reports
+            'reports' => $reports,
         ]);
     }
 
@@ -44,6 +44,7 @@ class ReportController extends Controller
     {
         $report = Report::findOrFail($id);
         $report->delete();
+
         return back()->with('success', 'Report deleted successfully.');
     }
 
@@ -62,7 +63,7 @@ class ReportController extends Controller
 
         // 3. Update ang status column
         $report->update([
-            'status' => $request->status
+            'status' => $request->status,
         ]);
 
         // 4. Balik sa page with success message

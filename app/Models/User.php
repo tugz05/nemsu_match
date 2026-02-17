@@ -69,6 +69,9 @@ class User extends Authenticatable
         'location_updated_at',
         'nearby_match_enabled',
         'nearby_match_radius_m',
+        // --- NEW FIELDS FOR ADMIN BANNING ---
+        'banned_at',
+        'ban_reason',
     ];
 
     /**
@@ -117,7 +120,17 @@ class User extends Authenticatable
             'preferred_campuses' => 'array',
             'ideal_match_qualities' => 'array',
             'preferred_courses' => 'array',
+            // --- NEW CAST ---
+            'banned_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Check if the user is currently banned by an admin.
+     */
+    public function isBanned(): bool
+    {
+        return $this->banned_at !== null;
     }
 
     /**
