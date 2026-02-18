@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Models\EditorRole;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -11,35 +12,33 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
-use Inertia\Response;
 
 class AdminAuthController extends Controller
 {
     /**
      * Show the admin login page
-     * Note: Return type removed to allow Redirects
      */
     public function showLogin()
     {
-        // If user is already authenticated and is admin/superadmin, redirect to appropriate dashboard
         if (Auth::check()) {
             $user = Auth::user();
 
             if ($user->is_superadmin) {
-                // Returns a Symfony Response (Redirect)
                 return Inertia::location('/superadmin');
             }
 
             if ($user->is_admin) {
-                // Returns a Symfony Response (Redirect)
                 return Inertia::location('/admin/dashboard');
             }
 
-            // If regular user, logout and show login page
+            if (EditorRole::where('user_id', $user->id)->exists()) {
+                return Inertia::location('/editor/dashboard');
+            }
+
+            // Regular user — log them out and show login
             Auth::logout();
         }
 
-        // Returns an Inertia Response
         return Inertia::render('auth/AdminLogin');
     }
 
@@ -75,12 +74,14 @@ class AdminAuthController extends Controller
             RateLimiter::hit($key, 60);
 
             throw ValidationException::withMessages([
-                'email' => 'No admin account found with this email address.',
+                'email' => 'No account found with this email address.',
             ]);
         }
 
-        // Check if user has admin privileges
-        if (! $user->is_admin && ! $user->is_superadmin) {
+        // Check if user has admin, superadmin, or editor privileges
+        $isEditor = EditorRole::where('user_id', $user->id)->exists();
+
+        if (! $user->is_admin && ! $user->is_superadmin && ! $isEditor) {
             RateLimiter::hit($key, 60);
 
             throw ValidationException::withMessages([
@@ -88,7 +89,7 @@ class AdminAuthController extends Controller
             ]);
         }
 
-        // Attempt to authenticate
+        // Verify password
         if (! Hash::check($request->password, $user->password)) {
             RateLimiter::hit($key, 60);
 
@@ -105,14 +106,20 @@ class AdminAuthController extends Controller
 
         $request->session()->regenerate();
 
-        // Redirect based on role
+        // Redirect based on role — order matters: superadmin > admin > editor
         if ($user->is_superadmin) {
             return redirect()->intended(route('superadmin.dashboard'))
                 ->with('success', 'Welcome back, Superadmin!');
         }
 
-        return redirect()->intended(route('admin.dashboard'))
-            ->with('success', 'Welcome back, Admin!');
+        if ($user->is_admin) {
+            return redirect()->intended(route('admin.dashboard'))
+                ->with('success', 'Welcome back, Admin!');
+        }
+
+        // Editor — use direct redirect, NOT intended() to avoid session URL overriding
+        return redirect('/editor/dashboard')
+            ->with('success', 'Welcome back, Editor!');
     }
 
     /**
@@ -125,6 +132,7 @@ class AdminAuthController extends Controller
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect()->route('admin.login')->with('status', 'You have been logged out successfully.');
+        return redirect()->route('admin.login')
+            ->with('status', 'You have been logged out successfully.');
     }
 }

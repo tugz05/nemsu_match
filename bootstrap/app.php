@@ -4,6 +4,7 @@ use App\Http\Middleware\EnsureProfileCompleted;
 use App\Http\Middleware\EnsureProfilePictureUploaded;
 use App\Http\Middleware\EnsureAdmin;
 use App\Http\Middleware\EnsureSuperadmin;
+use App\Http\Middleware\EnsureEditor;              // <-- ADD THIS LINE
 use App\Http\Middleware\EnsureAccountNotDisabled;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
@@ -36,10 +37,11 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'profile.completed' => EnsureProfileCompleted::class,
-            'profile.picture' => EnsureProfilePictureUploaded::class,
-            'admin' => EnsureAdmin::class,
-            'superadmin' => EnsureSuperadmin::class,
-            'account.active' => EnsureAccountNotDisabled::class,
+            'profile.picture'   => EnsureProfilePictureUploaded::class,
+            'admin'             => EnsureAdmin::class,
+            'superadmin'        => EnsureSuperadmin::class,
+            'editor'            => EnsureEditor::class,       // <-- ADD THIS LINE
+            'account.active'    => EnsureAccountNotDisabled::class,
         ]);
 
         // Redirect unauthenticated users to home page instead of /login

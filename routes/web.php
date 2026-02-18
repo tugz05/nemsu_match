@@ -9,7 +9,7 @@ use App\Http\Controllers\GalleryController;
 use App\Http\Controllers\LeaderboardController;
 use App\Http\Controllers\MatchmakingController;
 use App\Http\Controllers\ProximityMatchController;
-use App\Http\Controllers\AnnouncementController; // Public API Controller
+use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PostController;
 use App\Http\Controllers\ProfileController;
@@ -20,30 +20,42 @@ use App\Http\Controllers\StudentIdController;
 use App\Http\Controllers\DisabledAccountController;
 use App\Http\Controllers\Superadmin\ReportController as SuperadminReportController;
 use App\Http\Controllers\Admin\VerificationController;
-// --- NEW ADMIN IMPORTS ---
 use App\Http\Controllers\Admin\BannedUserController;
 use App\Http\Controllers\Admin\FeedbackController;
-use App\Http\Controllers\Admin\AnnouncementController as AdminAnnouncementController; // Aliased to avoid conflict
+use App\Http\Controllers\Admin\AnnouncementController as AdminAnnouncementController;
+// ─── EDITOR IMPORTS ───────────────────────────────────────────────────────────
+use App\Http\Controllers\Editor\DashboardController as EditorDashboardController;
+use App\Http\Controllers\Editor\AnnouncementController as EditorAnnouncementController;
+use App\Http\Controllers\Editor\SocialFeedController as EditorSocialFeedController;
+use App\Http\Controllers\Editor\UserManagementController as EditorUserManagementController;
+use App\Http\Controllers\Editor\AnalyticsController as EditorAnalyticsController;
+use App\Http\Controllers\Editor\ContentReportsController as EditorContentReportsController;
+use App\Http\Controllers\Editor\AuditLogController as EditorAuditLogController;
+use App\Http\Controllers\Superadmin\EditorController as SuperadminEditorController;
+// ─────────────────────────────────────────────────────────────────────────────
 
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
-use Laravel\Fortify\Features;
 
-// Home/Feed route - Social feed like Threads
+// ─────────────────────────────────────────────────────────────────────────────
+// PUBLIC / AUTH ROUTES
+// ─────────────────────────────────────────────────────────────────────────────
+
 Route::get('/', [NEMSUOAuthController::class, 'showLogin'])->name('home');
 
-// NEMSU Match Authentication Routes
 Route::get('nemsu/login', [NEMSUOAuthController::class, 'showLogin'])->name('nemsu.login');
 Route::get('oauth/nemsu/redirect', [NEMSUOAuthController::class, 'redirect'])->name('oauth.nemsu.redirect');
 Route::get('oauth/nemsu/callback', [NEMSUOAuthController::class, 'callback'])->name('oauth.nemsu.callback');
 Route::post('nemsu/logout', [NEMSUOAuthController::class, 'logout'])->name('nemsu.logout');
 
-// Admin Authentication Routes
 Route::get('admin/login', [AdminAuthController::class, 'showLogin'])->name('admin.login');
 Route::post('admin/login', [AdminAuthController::class, 'login']);
 Route::post('admin/logout', [AdminAuthController::class, 'logout'])->name('admin.logout');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTHENTICATED USER ROUTES
+// ─────────────────────────────────────────────────────────────────────────────
 
 Route::middleware(['auth'])->group(function () {
     Route::get('feed', [PostController::class, 'index'])->name('feed');
@@ -75,13 +87,11 @@ Route::get('browse', function () {
     return Inertia::render('Browse');
 })->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('browse');
 
-// Leaderboard - Most liked profiles (day/week/month)
 Route::get('leaderboard', [LeaderboardController::class, 'index'])
     ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('leaderboard');
 Route::get('api/leaderboard', [LeaderboardController::class, 'data'])
     ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('leaderboard.api');
 
-// Find Your Match (AI proximity match, same campus, base location)
 Route::get('find-your-match', [ProximityMatchController::class, 'index'])
     ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('proximity-match');
 Route::get('api/proximity-match', [ProximityMatchController::class, 'data'])
@@ -89,7 +99,6 @@ Route::get('api/proximity-match', [ProximityMatchController::class, 'data'])
 Route::post('api/proximity-match/reset', [ProximityMatchController::class, 'reset'])
     ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('proximity-match.reset');
 
-// Disabled account info + appeal
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('account-disabled', [DisabledAccountController::class, 'show'])->name('account.disabled');
     Route::post('api/account-disabled/appeal', [DisabledAccountController::class, 'submitAppeal'])->name('account.disabled.appeal');
@@ -185,72 +194,128 @@ Route::middleware(['auth', 'verified', 'profile.completed'])->group(function () 
     Route::delete('api/posts/{post}', [PostController::class, 'destroy'])->name('posts.destroy');
 });
 
-Route::middleware(['auth', 'verified', 'superadmin'])->prefix('superadmin')->name('superadmin.')->group(function () {
-    Route::get('/admin/verifications', [VerificationController::class, 'index'])->name('admin.verifications');
-    Route::put('/admin/verifications/{user}/approve', [VerificationController::class, 'approve']);
-    Route::delete('/admin/verifications/{user}/reject', [VerificationController::class, 'reject']);
+// ─────────────────────────────────────────────────────────────────────────────
+// SUPERADMIN ROUTES
+// ─────────────────────────────────────────────────────────────────────────────
 
-    Route::get('/', [\App\Http\Controllers\Superadmin\DashboardController::class, 'index'])->name('dashboard');
-    Route::get('admins', [\App\Http\Controllers\Superadmin\AdminController::class, 'index'])->name('admins.index');
-    Route::post('admins', [\App\Http\Controllers\Superadmin\AdminController::class, 'store'])->name('admins.store');
-    Route::put('admins/{adminRole}', [\App\Http\Controllers\Superadmin\AdminController::class, 'update'])->name('admins.update');
-    Route::delete('admins/{adminRole}', [\App\Http\Controllers\Superadmin\AdminController::class, 'destroy'])->name('admins.destroy');
-    Route::get('admins/search-users', [\App\Http\Controllers\Superadmin\AdminController::class, 'searchUsers'])->name('admins.search-users');
-    Route::get('users', [\App\Http\Controllers\Superadmin\UserController::class, 'index'])->name('users.index');
-    Route::get('users/{user}', [\App\Http\Controllers\Superadmin\UserController::class, 'show'])->name('users.show');
-    Route::put('users/{user}', [\App\Http\Controllers\Superadmin\UserController::class, 'update'])->name('users.update');
-    Route::post('users/{user}/toggle-status', [\App\Http\Controllers\Superadmin\UserController::class, 'toggleStatus'])->name('users.toggle-status');
-    Route::delete('users/{user}', [\App\Http\Controllers\Superadmin\UserController::class, 'destroy'])->name('users.destroy');
-    Route::get('appeals', [SuperadminReportController::class, 'appeals'])->name('appeals.index');
-    Route::get('reported-users', [SuperadminReportController::class, 'reportedUsers'])->name('reported-users.index');
-    Route::get('reported-users/{report}', [SuperadminReportController::class, 'details'])->name('reported-users.details');
-    Route::post('reported-users/{report}/disable-account', [SuperadminReportController::class, 'disableAccount'])->name('reported-users.disable-account');
-    Route::post('appeals/{appeal}/review', [SuperadminReportController::class, 'reviewAppeal'])->name('appeals.review');
-    Route::get('disabled-users', [SuperadminReportController::class, 'disabledUsers'])->name('disabled-users.index');
-    Route::get('settings', [\App\Http\Controllers\Superadmin\SettingsController::class, 'index'])->name('settings.index');
-    Route::post('settings', [\App\Http\Controllers\Superadmin\SettingsController::class, 'store'])->name('settings.store');
-    Route::put('settings/{appSetting}', [\App\Http\Controllers\Superadmin\SettingsController::class, 'update'])->name('settings.update');
-    Route::delete('settings/{appSetting}', [\App\Http\Controllers\Superadmin\SettingsController::class, 'destroy'])->name('settings.destroy');
-    // Campuses (base locations for Find Your Match)
-    Route::get('campuses', [\App\Http\Controllers\Superadmin\CampusController::class, 'index'])->name('campuses.index');
-    Route::get('campuses/create', [\App\Http\Controllers\Superadmin\CampusController::class, 'create'])->name('campuses.create');
-    Route::post('campuses', [\App\Http\Controllers\Superadmin\CampusController::class, 'store'])->name('campuses.store');
-    Route::get('campuses/{campus}/edit', [\App\Http\Controllers\Superadmin\CampusController::class, 'edit'])->name('campuses.edit');
-    Route::put('campuses/{campus}', [\App\Http\Controllers\Superadmin\CampusController::class, 'update'])->name('campuses.update');
-    Route::delete('campuses/{campus}', [\App\Http\Controllers\Superadmin\CampusController::class, 'destroy'])->name('campuses.destroy');
-});
+Route::middleware(['auth', 'verified', 'superadmin'])
+    ->prefix('superadmin')
+    ->name('superadmin.')
+    ->group(function () {
+        Route::get('/admin/verifications', [VerificationController::class, 'index'])->name('admin.verifications');
+        Route::put('/admin/verifications/{user}/approve', [VerificationController::class, 'approve']);
+        Route::delete('/admin/verifications/{user}/reject', [VerificationController::class, 'reject']);
 
-// --- ADMIN GROUP (UPDATED) ---
+        Route::get('/', [\App\Http\Controllers\Superadmin\DashboardController::class, 'index'])->name('dashboard');
+        Route::get('admins', [\App\Http\Controllers\Superadmin\AdminController::class, 'index'])->name('admins.index');
+        Route::post('admins', [\App\Http\Controllers\Superadmin\AdminController::class, 'store'])->name('admins.store');
+        Route::put('admins/{adminRole}', [\App\Http\Controllers\Superadmin\AdminController::class, 'update'])->name('admins.update');
+        Route::delete('admins/{adminRole}', [\App\Http\Controllers\Superadmin\AdminController::class, 'destroy'])->name('admins.destroy');
+        Route::get('admins/search-users', [\App\Http\Controllers\Superadmin\AdminController::class, 'searchUsers'])->name('admins.search-users');
+
+        Route::get('users', [\App\Http\Controllers\Superadmin\UserController::class, 'index'])->name('users.index');
+        Route::get('users/{user}', [\App\Http\Controllers\Superadmin\UserController::class, 'show'])->name('users.show');
+        Route::put('users/{user}', [\App\Http\Controllers\Superadmin\UserController::class, 'update'])->name('users.update');
+        Route::post('users/{user}/toggle-status', [\App\Http\Controllers\Superadmin\UserController::class, 'toggleStatus'])->name('users.toggle-status');
+        Route::delete('users/{user}', [\App\Http\Controllers\Superadmin\UserController::class, 'destroy'])->name('users.destroy');
+
+        Route::get('appeals', [SuperadminReportController::class, 'appeals'])->name('appeals.index');
+        Route::get('reported-users', [SuperadminReportController::class, 'reportedUsers'])->name('reported-users.index');
+        Route::get('reported-users/{report}', [SuperadminReportController::class, 'details'])->name('reported-users.details');
+        Route::post('reported-users/{report}/disable-account', [SuperadminReportController::class, 'disableAccount'])->name('reported-users.disable-account');
+        Route::post('appeals/{appeal}/review', [SuperadminReportController::class, 'reviewAppeal'])->name('appeals.review');
+        Route::get('disabled-users', [SuperadminReportController::class, 'disabledUsers'])->name('disabled-users.index');
+
+        Route::get('settings', [\App\Http\Controllers\Superadmin\SettingsController::class, 'index'])->name('settings.index');
+        Route::post('settings', [\App\Http\Controllers\Superadmin\SettingsController::class, 'store'])->name('settings.store');
+        Route::put('settings/{appSetting}', [\App\Http\Controllers\Superadmin\SettingsController::class, 'update'])->name('settings.update');
+        Route::delete('settings/{appSetting}', [\App\Http\Controllers\Superadmin\SettingsController::class, 'destroy'])->name('settings.destroy');
+
+        Route::get('campuses', [\App\Http\Controllers\Superadmin\CampusController::class, 'index'])->name('campuses.index');
+        Route::get('campuses/create', [\App\Http\Controllers\Superadmin\CampusController::class, 'create'])->name('campuses.create');
+        Route::post('campuses', [\App\Http\Controllers\Superadmin\CampusController::class, 'store'])->name('campuses.store');
+        Route::get('campuses/{campus}/edit', [\App\Http\Controllers\Superadmin\CampusController::class, 'edit'])->name('campuses.edit');
+        Route::put('campuses/{campus}', [\App\Http\Controllers\Superadmin\CampusController::class, 'update'])->name('campuses.update');
+        Route::delete('campuses/{campus}', [\App\Http\Controllers\Superadmin\CampusController::class, 'destroy'])->name('campuses.destroy');
+
+        // ─── EDITOR MANAGEMENT (Superadmin grants/revokes editor access) ──────
+        Route::get('editors', [SuperadminEditorController::class, 'index'])->name('editors.index');
+        Route::get('editors/search-users', [SuperadminEditorController::class, 'searchUsers'])->name('editors.search-users');
+        Route::post('editors', [SuperadminEditorController::class, 'store'])->name('editors.store');
+        Route::delete('editors/{editorRole}', [SuperadminEditorController::class, 'destroy'])->name('editors.destroy');
+        // ─────────────────────────────────────────────────────────────────────
+    });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADMIN ROUTES
+// ─────────────────────────────────────────────────────────────────────────────
+
 Route::middleware(['auth', 'verified', 'admin'])
     ->prefix('admin')
     ->name('admin.')
     ->group(function () {
         Route::get('dashboard', [\App\Http\Controllers\Admin\DashboardController::class, 'index'])->name('dashboard');
 
-        // VERIFICATION ROUTES
         Route::get('verifications', [\App\Http\Controllers\Admin\VerificationController::class, 'index'])->name('verifications.index');
         Route::put('verifications/{user}/approve', [\App\Http\Controllers\Admin\VerificationController::class, 'approve'])->name('verifications.approve');
         Route::delete('verifications/{user}/reject', [\App\Http\Controllers\Admin\VerificationController::class, 'reject'])->name('verifications.reject');
 
-        // MESSAGE REPORTS
         Route::get('message-report', [\App\Http\Controllers\Admin\ReportController::class, 'index'])->name('message-report');
         Route::put('message-report/{id}', [\App\Http\Controllers\Admin\ReportController::class, 'update'])->name('message-report.update');
         Route::delete('message-report/{id}', [\App\Http\Controllers\Admin\ReportController::class, 'destroy'])->name('message-report.destroy');
 
-        // --- NEW FEATURES ---
-
-        // 1. BANNED USERS
         Route::get('banned', [BannedUserController::class, 'index'])->name('banned');
         Route::post('users/{user}/ban', [BannedUserController::class, 'store'])->name('users.ban');
         Route::delete('users/{user}/unban', [BannedUserController::class, 'destroy'])->name('users.unban');
 
-        // 2. ANNOUNCEMENTS (ADMIN)
         Route::get('announcements', [AdminAnnouncementController::class, 'index'])->name('admin.announcements.index');
         Route::post('announcements', [AdminAnnouncementController::class, 'store'])->name('admin.announcements.store');
         Route::put('announcements/{announcement}', [AdminAnnouncementController::class, 'update'])->name('admin.announcements.update');
         Route::delete('announcements/{announcement}', [AdminAnnouncementController::class, 'destroy'])->name('admin.announcements.destroy');
 
-        // 3. USER FEEDBACK
         Route::get('feedback', [FeedbackController::class, 'index'])->name('feedback');
         Route::put('feedback/{feedback}/read', [FeedbackController::class, 'update'])->name('feedback.read');
+    });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EDITOR ROUTES
+// ─────────────────────────────────────────────────────────────────────────────
+
+Route::middleware(['auth', 'verified', 'editor'])
+    ->prefix('editor')
+    ->name('editor.')
+    ->group(function () {
+
+        // Dashboard
+        Route::get('dashboard', [EditorDashboardController::class, 'index'])->name('dashboard');
+
+        // Announcements
+        Route::get('announcements', [EditorAnnouncementController::class, 'index'])->name('announcements.index');
+        Route::post('announcements', [EditorAnnouncementController::class, 'store'])->name('announcements.store');
+        Route::put('announcements/{announcement}', [EditorAnnouncementController::class, 'update'])->name('announcements.update');
+        Route::delete('announcements/{announcement}', [EditorAnnouncementController::class, 'destroy'])->name('announcements.destroy');
+        Route::patch('announcements/{announcement}/toggle', [EditorAnnouncementController::class, 'toggle'])->name('announcements.toggle');
+
+        // Social Feed
+        Route::get('social-feed', [EditorSocialFeedController::class, 'index'])->name('social-feed.index');
+        Route::delete('social-feed/{post}', [EditorSocialFeedController::class, 'destroy'])->name('social-feed.destroy');
+
+        // User Management
+        Route::get('users', [EditorUserManagementController::class, 'index'])->name('users.index');
+        Route::get('users/{user}', [EditorUserManagementController::class, 'show'])->name('users.show');
+        Route::post('users/{user}/suspend', [EditorUserManagementController::class, 'suspend'])->name('users.suspend');
+        Route::post('users/{user}/unsuspend', [EditorUserManagementController::class, 'unsuspend'])->name('users.unsuspend');
+        Route::post('users/{user}/ban', [EditorUserManagementController::class, 'ban'])->name('users.ban');
+        Route::post('users/{user}/verify-student', [EditorUserManagementController::class, 'verifyStudent'])->name('users.verify-student');
+        Route::post('users/{user}/unverify-student', [EditorUserManagementController::class, 'unverifyStudent'])->name('users.unverify-student');
+
+        // Analytics
+        Route::get('analytics', [EditorAnalyticsController::class, 'index'])->name('analytics.index');
+
+        // Content Reports
+        Route::get('reports', [EditorContentReportsController::class, 'index'])->name('reports.index');
+        Route::patch('reports/{report}/review', [EditorContentReportsController::class, 'review'])->name('reports.review');
+
+        // Audit Log
+        Route::get('audit-log', [EditorAuditLogController::class, 'index'])->name('audit-log.index');
     });

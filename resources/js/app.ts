@@ -26,6 +26,7 @@ createInertiaApp({
     progress: {
         color: '#4B5563',
     },
+      prefetch: false,
 });
 
 // This will set light / dark mode on page load...

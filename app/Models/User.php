@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Models\Superadmin\AppSetting;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -13,14 +12,8 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
 
 class User extends Authenticatable
 {
-    /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable, TwoFactorAuthenticatable;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var list<string>
-     */
     protected $fillable = [
         'name',
         'email',
@@ -31,6 +24,7 @@ class User extends Authenticatable
         'academic_program',
         'year_level',
         'profile_picture',
+        'avatar',                        // ← added (was missing)
         'courses',
         'research_interests',
         'extracurricular_activities',
@@ -69,16 +63,10 @@ class User extends Authenticatable
         'location_updated_at',
         'nearby_match_enabled',
         'nearby_match_radius_m',
-        // --- NEW FIELDS FOR ADMIN BANNING ---
         'banned_at',
         'ban_reason',
     ];
 
-    /**
-     * The attributes that should be hidden for serialization.
-     *
-     * @var list<string>
-     */
     protected $hidden = [
         'password',
         'two_factor_secret',
@@ -86,42 +74,37 @@ class User extends Authenticatable
         'remember_token',
     ];
 
-    /**
-     * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
     protected function casts(): array
     {
         return [
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
-            'two_factor_confirmed_at' => 'datetime',
-            'date_of_birth' => 'date',
-            'profile_completed' => 'boolean',
-            'terms_accepted_at' => 'datetime',
-            'subscription_ends_at' => 'datetime',
-            'boost_ends_at' => 'datetime',
-            'super_like_reset_at' => 'date',
-            'last_seen_at' => 'datetime',
-            'is_admin' => 'boolean',
-            'is_superadmin' => 'boolean',
-            'is_disabled' => 'boolean',
-            'disabled_at' => 'datetime',
-            'preferred_age_min' => 'integer',
-            'preferred_age_max' => 'integer',
-            'nearby_match_enabled' => 'boolean',
-            'location_updated_at' => 'datetime',
-            'courses' => 'array',
-            'research_interests' => 'array',
+            'email_verified_at'          => 'datetime',
+            'password'                   => 'hashed',
+            'two_factor_confirmed_at'    => 'datetime',
+            'date_of_birth'              => 'date',
+            'profile_completed'          => 'boolean',
+            'terms_accepted_at'          => 'datetime',
+            'subscription_ends_at'       => 'datetime',
+            'boost_ends_at'              => 'datetime',
+            'super_like_reset_at'        => 'date',
+            'last_seen_at'               => 'datetime',
+            'is_admin'                   => 'boolean',
+            'is_superadmin'              => 'boolean',
+            'is_disabled'                => 'boolean',
+            'is_workspace_verified'      => 'boolean',  // ← added
+            'disabled_at'                => 'datetime',
+            'preferred_age_min'          => 'integer',
+            'preferred_age_max'          => 'integer',
+            'nearby_match_enabled'       => 'boolean',
+            'location_updated_at'        => 'datetime',
+            'courses'                    => 'array',
+            'research_interests'         => 'array',
             'extracurricular_activities' => 'array',
-            'academic_goals' => 'array',
-            'interests' => 'array',
-            'preferred_campuses' => 'array',
-            'ideal_match_qualities' => 'array',
-            'preferred_courses' => 'array',
-            // --- NEW CAST ---
-            'banned_at' => 'datetime',
+            'academic_goals'             => 'array',
+            'interests'                  => 'array',
+            'preferred_campuses'         => 'array',
+            'ideal_match_qualities'      => 'array',
+            'preferred_courses'          => 'array',
+            'banned_at'                  => 'datetime',
         ];
     }
 
@@ -196,7 +179,7 @@ class User extends Authenticatable
     public function getRemainingLikesToday(): int
     {
         $limit = $this->getDailyLikesLimit();
-        $used = $this->getTodayLikesCount();
+        $used  = $this->getTodayLikesCount();
         return max(0, $limit - $used);
     }
 
@@ -220,7 +203,7 @@ class User extends Authenticatable
         if ($this->super_like_reset_at !== $today) {
             $this->update([
                 'super_like_count_today' => 1,
-                'super_like_reset_at' => $today,
+                'super_like_reset_at'    => $today,
             ]);
         } else {
             $this->increment('super_like_count_today');
@@ -378,16 +361,26 @@ class User extends Authenticatable
         return $this->hasOne(\App\Models\Superadmin\AdminRole::class);
     }
 
+    /** Editor role assigned to this user */
+    public function editorRole(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(\App\Models\EditorRole::class);
+    }
+
     /**
-     * Whether this user is staff (superadmin, admin, or editor) and should bypass
-     * maintenance mode and pre-registration mode restrictions.
+     * Whether this user is an active editor.
      */
+    public function isEditor(): bool
+    {
+        return $this->editorRole()->exists();
+    }
+
     public function isStaff(): bool
     {
         if ($this->is_superadmin || $this->is_admin) {
             return true;
         }
-
-        return $this->adminRole()->where('is_active', true)->exists();
+        return $this->editorRole()->exists()
+            || $this->adminRole()->where('is_active', true)->exists();
     }
 }
