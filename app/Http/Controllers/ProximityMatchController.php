@@ -51,6 +51,8 @@ class ProximityMatchController extends Controller
             ];
         }
 
+        $likersWithin10m = $this->proximityMatch->getLikersWithin10mCount($user);
+
         return response()->json([
             'match' => $matchData,
             'location_percentage' => $percentage,
@@ -60,6 +62,7 @@ class ProximityMatchController extends Controller
             'is_nearby_10m' => $isNearby10m,
             'campus' => $user->campus,
             'ai_debug' => $debug,
+            'likers_within_10m_count' => $likersWithin10m,
         ]);
     }
 
@@ -72,5 +75,17 @@ class ProximityMatchController extends Controller
         $user = Auth::user();
         $this->proximityMatch->resetMatch($user);
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * GET /api/proximity-match/radar
+     * Returns radar data: campus base lat/long, current user position relative to base,
+     * and nearest same-campus users within radius (distance and bearing from base, distance from me).
+     * Used for the radar UI with heart blips around the campus base point.
+     */
+    public function radar(Request $request)
+    {
+        $user = Auth::user();
+        return response()->json($this->proximityMatch->getRadarData($user));
     }
 }

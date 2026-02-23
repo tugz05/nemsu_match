@@ -4,9 +4,12 @@ namespace App\Services;
 
 use App\Events\MatchProximityUpdated;
 use App\Events\NotificationSent;
+use App\Events\ProximityAlarmTriggered;
+use App\Events\RadarUpdated;
 use App\Models\Notification;
 use App\Models\User;
 use App\Models\AiProximityMatch;
+use App\Models\SwipeAction;
 use App\Models\UserMatch;
 
 class NearbyMatchService
@@ -37,6 +40,22 @@ class NearbyMatchService
     }
 
     /**
+     * Bearing in degrees from point 1 to point 2 (0 = North, 90 = East). Used for radar placement.
+     */
+    public static function bearingDegrees(float $lat1, float $lon1, float $lat2, float $lon2): float
+    {
+        $lat1 = deg2rad($lat1);
+        $lon1 = deg2rad($lon1);
+        $lat2 = deg2rad($lat2);
+        $lon2 = deg2rad($lon2);
+        $dLon = $lon2 - $lon1;
+        $y = sin($dLon) * cos($lat2);
+        $x = cos($lat1) * sin($lat2) - sin($lat1) * cos($lat2) * cos($dLon);
+        $bearing = rad2deg(atan2($y, $x));
+        return fmod($bearing + 360, 360);
+    }
+
+    /**
      * Update user location and check for nearby mutual matches; send notifications when in range.
      */
     public function updateLocationAndNotify(User $user, float $latitude, float $longitude): void
@@ -50,8 +69,69 @@ class NearbyMatchService
         // Update AI match proximity in real-time (regardless of nearby_match_enabled)
         $this->broadcastAiMatchProximity($user);
 
+        // Proximity alarm: notify users who are within 10m of someone who has romantic feelings for them (Love Alarm style)
+        $this->broadcastProximityAlarmToAffectedUsers($user);
+
+        // Real-time radar: notify everyone on this campus to refetch nearby users (Pusher)
+        if ($user->campus !== null && trim($user->campus) !== '') {
+            broadcast(new RadarUpdated($user->campus));
+        }
+
         if ($user->nearby_match_enabled) {
             $this->checkAndNotifyNearbyMatches($user);
+        }
+    }
+
+    /**
+     * When user B updates location: find all users A whom B has liked (dating intent) and who are within 10m of B.
+     * For each such A (same campus), recalc likers-within-10m count and broadcast ProximityAlarmTriggered so A's app can "ring".
+     */
+    protected function broadcastProximityAlarmToAffectedUsers(User $userWhoMoved): void
+    {
+        if ($userWhoMoved->latitude === null || $userWhoMoved->longitude === null) {
+            return;
+        }
+
+        $campus = $userWhoMoved->campus;
+        if ($campus === null || trim($campus) === '') {
+            return;
+        }
+
+        $targetIds = SwipeAction::query()
+            ->where('user_id', $userWhoMoved->id)
+            ->where('intent', SwipeAction::INTENT_DATING)
+            ->distinct()
+            ->pluck('target_user_id')
+            ->all();
+
+        if ($targetIds === []) {
+            return;
+        }
+
+        $targets = User::query()
+            ->whereIn('id', $targetIds)
+            ->where('campus', $campus)
+            ->whereNotNull('latitude')
+            ->whereNotNull('longitude')
+            ->get(['id', 'latitude', 'longitude']);
+
+        $myLat = (float) $userWhoMoved->latitude;
+        $myLon = (float) $userWhoMoved->longitude;
+
+        foreach ($targets as $target) {
+            $dist = self::distanceMeters(
+                $myLat,
+                $myLon,
+                (float) $target->latitude,
+                (float) $target->longitude
+            );
+            if ($dist !== null && $dist <= 10.0) {
+                $targetUser = User::find($target->id);
+                if ($targetUser) {
+                    $count = $this->proximityMatch->getLikersWithin10mCount($targetUser);
+                    broadcast(new ProximityAlarmTriggered($targetUser, $count));
+                }
+            }
         }
     }
 

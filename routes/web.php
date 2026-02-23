@@ -88,6 +88,8 @@ Route::get('api/proximity-match', [ProximityMatchController::class, 'data'])
     ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('proximity-match.api');
 Route::post('api/proximity-match/reset', [ProximityMatchController::class, 'reset'])
     ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('proximity-match.reset');
+Route::get('api/proximity-match/radar', [ProximityMatchController::class, 'radar'])
+    ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('proximity-match.radar');
 
 // Disabled account info + appeal
 Route::middleware(['auth', 'verified'])->group(function () {

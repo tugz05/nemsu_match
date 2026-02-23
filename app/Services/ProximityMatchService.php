@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AiProximityMatch;
 use App\Models\Campus;
+use App\Models\SwipeAction;
 use App\Models\User;
 use Illuminate\Support\Facades\Log;
 use OpenAI\Laravel\Facades\OpenAI;
@@ -15,6 +16,9 @@ class ProximityMatchService
 
     /** Max distance (meters) for percentage scale: beyond this = 0%. */
     public const MAX_DISTANCE_FOR_PERCENTAGE_M = 500;
+
+    /** Radius (meters) from campus base for radar "nearest users" list. */
+    public const RADAR_RADIUS_M = 500;
 
     /**
      * Get campus model by name (matches users.campus string).
@@ -201,6 +205,126 @@ class ProximityMatchService
             return false;
         }
         return $distance <= $radiusMeters;
+    }
+
+    /**
+     * Radar data: campus base, current user position relative to base, and nearest same-campus users
+     * within RADAR_RADIUS_M of the base (each with distance/bearing from base, distance from me).
+     * Used to render a radar with heart blips for nearest users around the campus base point.
+     *
+     * @return array{campus_base: array{latitude: float, longitude: float}|null, radar_radius_m: int, me: array{distance_from_base_m: float, bearing_from_base: float}|null, nearby_users: array<int, array{id: int, display_name: string, profile_picture: string|null, distance_from_base_m: float, bearing_from_base: float, distance_from_me_m: float|null}>}
+     */
+    public function getRadarData(User $user): array
+    {
+        $campus = $this->getCampusByUserCampus($user->campus);
+        $baseLat = $campus && $campus->hasBaseLocation() ? (float) $campus->base_latitude : null;
+        $baseLon = $campus && $campus->hasBaseLocation() ? (float) $campus->base_longitude : null;
+
+        $result = [
+            'campus_base' => null,
+            'radar_radius_m' => self::RADAR_RADIUS_M,
+            'me' => null,
+            'nearby_users' => [],
+        ];
+
+        if ($baseLat === null || $baseLon === null) {
+            return $result;
+        }
+
+        $result['campus_base'] = ['latitude' => $baseLat, 'longitude' => $baseLon];
+
+        $myLat = $user->latitude !== null ? (float) $user->latitude : null;
+        $myLon = $user->longitude !== null ? (float) $user->longitude : null;
+        if ($myLat !== null && $myLon !== null) {
+            $myDist = NearbyMatchService::distanceMeters($baseLat, $baseLon, $myLat, $myLon);
+            $myBearing = NearbyMatchService::bearingDegrees($baseLat, $baseLon, $myLat, $myLon);
+            if ($myDist !== null) {
+                $result['me'] = [
+                    'distance_from_base_m' => round($myDist, 1),
+                    'bearing_from_base' => round($myBearing, 2),
+                ];
+            }
+        }
+
+        $candidates = $this->getSameCampusCandidates($user);
+        $radiusM = self::RADAR_RADIUS_M;
+        $list = [];
+        foreach ($candidates as $other) {
+            $olat = $other->latitude !== null ? (float) $other->latitude : null;
+            $olon = $other->longitude !== null ? (float) $other->longitude : null;
+            if ($olat === null || $olon === null) {
+                continue;
+            }
+            $distFromBase = NearbyMatchService::distanceMeters($baseLat, $baseLon, $olat, $olon);
+            if ($distFromBase === null || $distFromBase > $radiusM) {
+                continue;
+            }
+            $bearing = NearbyMatchService::bearingDegrees($baseLat, $baseLon, $olat, $olon);
+            $distFromMe = $this->distanceToMatchMeters($user, $other);
+            $list[] = [
+                'id' => $other->id,
+                'display_name' => $other->display_name ?? '',
+                'profile_picture' => $other->profile_picture,
+                'distance_from_base_m' => round($distFromBase, 1),
+                'bearing_from_base' => round($bearing, 2),
+                'distance_from_me_m' => $distFromMe !== null ? round($distFromMe, 1) : null,
+            ];
+        }
+        usort($list, fn ($a, $b) => $a['distance_from_base_m'] <=> $b['distance_from_base_m']);
+        $result['nearby_users'] = array_values($list);
+
+        return $result;
+    }
+
+    /**
+     * Proximity alarm (Love Alarm style): count of users who have romantic feelings for this user
+     * (liked them with dating intent) and are within 10m. Same campus only. Anonymous count only.
+     */
+    public function getLikersWithin10mCount(User $user): int
+    {
+        if ($user->latitude === null || $user->longitude === null) {
+            return 0;
+        }
+
+        $campusName = $user->campus;
+        if ($campusName === null || trim($campusName) === '') {
+            return 0;
+        }
+
+        $likerIds = SwipeAction::query()
+            ->where('target_user_id', $user->id)
+            ->where('intent', SwipeAction::INTENT_DATING)
+            ->distinct()
+            ->pluck('user_id')
+            ->all();
+
+        if ($likerIds === []) {
+            return 0;
+        }
+
+        $likers = User::query()
+            ->whereIn('id', $likerIds)
+            ->where('campus', $campusName)
+            ->whereNotNull('latitude')
+            ->whereNotNull('longitude')
+            ->get(['id', 'latitude', 'longitude']);
+
+        $count = 0;
+        $myLat = (float) $user->latitude;
+        $myLon = (float) $user->longitude;
+        foreach ($likers as $liker) {
+            $dist = NearbyMatchService::distanceMeters(
+                $myLat,
+                $myLon,
+                (float) $liker->latitude,
+                (float) $liker->longitude
+            );
+            if ($dist !== null && $dist <= 10.0) {
+                $count++;
+            }
+        }
+
+        return $count;
     }
 
     private function isUserEligible(User $u): bool
