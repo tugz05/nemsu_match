@@ -406,6 +406,7 @@ watch(
 );
 
 onMounted(() => {
+    browserNotif.refreshPermission();
     const params = new URLSearchParams(window.location.search);
     const requiresPicture = params.get('require_profile_picture') === '1';
     if (requiresPicture && !props.user.profile_picture) {

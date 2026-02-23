@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { Head, router } from '@inertiajs/vue3';
-import { Settings as SettingsIcon, Save, Power, UserCheck, MessageSquare, Video, Heart, Zap, Image } from 'lucide-vue-next';
+import { Settings as SettingsIcon, Save, Power, UserCheck, MessageSquare, Video, Heart, Zap, Image, Bell } from 'lucide-vue-next';
 import SuperadminLayout from './Layout.vue';
 import { useCsrfToken } from '@/composables/useCsrfToken';
+import { useBrowserNotifications } from '@/composables/useBrowserNotifications';
 
 interface Setting {
     id: number;
@@ -35,6 +36,61 @@ const saving = ref(false);
 const successMessage = ref('');
 const uploadingLogo = ref(false);
 const uploadingHeaderIcon = ref(false);
+
+// Browser notification test (superadmin)
+const browserNotif = useBrowserNotifications();
+const testPusherSending = ref(false);
+const testPusherMessage = ref('');
+
+onMounted(() => {
+    browserNotif.refreshPermission();
+});
+
+async function sendTestBrowserNotification() {
+    if (!browserNotif.isSupported) {
+        alert('Your browser does not support notifications.');
+        return;
+    }
+    let perm = browserNotif.permission;
+    if (perm !== 'granted') {
+        perm = await browserNotif.requestPermission();
+    }
+    if (perm === 'granted') {
+        browserNotif.setEnabled(true);
+        const n = new Notification('NEMSU Match - Test', {
+            body: 'This is a local test. Real notifications arrive via Pusher when the app is in the background.',
+            tag: 'test-local',
+        });
+        n.onclick = () => n.close();
+    } else {
+        alert('Permission denied. Enable notifications in your browser settings for this site.');
+    }
+}
+
+async function sendTestViaPusher() {
+    testPusherMessage.value = '';
+    testPusherSending.value = true;
+    try {
+        const res = await fetch('/superadmin/settings/test-browser-notification', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'X-CSRF-TOKEN': getCsrfToken(),
+                Accept: 'application/json',
+            },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+            testPusherMessage.value = data.message || 'Test sent. If browser notifications are enabled and allowed, you should see it (even on this tab for test type).';
+        } else {
+            testPusherMessage.value = data.message || 'Failed to send test.';
+        }
+    } catch (e) {
+        testPusherMessage.value = 'Request failed.';
+    } finally {
+        testPusherSending.value = false;
+    }
+}
 
 // Exclude branding and freemium from generic list (they have dedicated sections)
 const settingsWithoutBranding = computed(() => {
@@ -270,6 +326,46 @@ async function saveAllSettings() {
                             <p class="font-semibold">{{ getFreemiumSetting('free_daily_likes_limit')?.value ?? 20 }}</p>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Browser notification test -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+                <div class="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                    <div class="flex items-center gap-3">
+                        <Bell class="w-5 h-5 text-indigo-600" />
+                        <span class="px-3 py-1 rounded-full text-xs font-semibold capitalize bg-indigo-100 text-indigo-700">Testing</span>
+                        <h2 class="text-lg font-bold text-gray-900">Browser notification (Pusher)</h2>
+                    </div>
+                </div>
+                <div class="p-6">
+                    <p class="text-sm text-gray-600 mb-4">Test that real-time browser notifications work. Users must allow notifications and enable them in Account → Browser notifications.</p>
+                    <div class="flex flex-wrap items-center gap-3 mb-3">
+                        <span class="text-sm text-gray-600">Permission:</span>
+                        <span :class="['text-sm font-medium px-2 py-1 rounded', browserNotif.permission === 'granted' ? 'bg-green-100 text-green-800' : browserNotif.permission === 'denied' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800']">
+                            {{ browserNotif.permission }}
+                        </span>
+                        <span v-if="browserNotif.isSupported && browserNotif.isEnabled" class="text-sm text-green-600">· Notifications enabled</span>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            :disabled="!browserNotif.isSupported"
+                            class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            @click="sendTestBrowserNotification"
+                        >
+                            Request permission & show local test
+                        </button>
+                        <button
+                            type="button"
+                            :disabled="testPusherSending"
+                            class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-50"
+                            @click="sendTestViaPusher"
+                        >
+                            {{ testPusherSending ? 'Sending…' : 'Send test via Pusher' }}
+                        </button>
+                    </div>
+                    <p v-if="testPusherMessage" class="mt-3 text-sm text-gray-600">{{ testPusherMessage }}</p>
                 </div>
             </div>
 

@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\Superadmin;
 
 use App\Events\MaintenanceModeChanged;
+use App\Events\NotificationSent;
 use App\Events\PreRegistrationModeChanged;
 use App\Http\Controllers\Controller;
+use App\Models\Notification;
 use App\Models\Superadmin\AppSetting;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -219,6 +222,29 @@ class SettingsController extends Controller
             'message' => 'File uploaded successfully.',
             'url' => $url,
             'path' => $path,
+        ]);
+    }
+
+    /**
+     * Send a test notification via Pusher to the current user (superadmin).
+     * Creates a notification and broadcasts it so the browser receives it in real time.
+     */
+    public function testBrowserNotification(Request $request)
+    {
+        $user = Auth::user();
+        $notification = Notification::create([
+            'user_id' => $user->id,
+            'type' => 'test',
+            'from_user_id' => $user->id,
+            'notifiable_type' => 'user',
+            'notifiable_id' => $user->id,
+            'data' => ['message' => 'Test from superadmin'],
+        ]);
+        $notification->load('fromUser:id,display_name,fullname,profile_picture');
+        broadcast(new NotificationSent($notification));
+
+        return response()->json([
+            'message' => 'Test notification sent via Pusher. Allow browser notifications and enable them in Account settings, then switch to another tab or minimize to see it.',
         ]);
     }
 }

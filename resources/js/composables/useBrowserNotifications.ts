@@ -34,6 +34,11 @@ export function useBrowserNotifications() {
     function refreshPermission() {
         if (isSupported) {
             permission.value = Notification.permission;
+            // If user revoked permission in browser, clear the "enabled" preference so UI stays in sync
+            if (Notification.permission === 'denied' && isEnabled.value) {
+                localStorage.removeItem(STORAGE_KEY);
+                isEnabled.value = false;
+            }
         }
     }
 
@@ -151,6 +156,11 @@ export function getNotificationTitleAndBody(
                 title: 'Match nearby',
                 body: `Hey! ${name} is nearby—say hi or plan to meet up!`,
             };
+        case 'test':
+            return {
+                title: 'NEMSU Match - Test',
+                body: 'This is a test notification from Pusher. Browser notifications are working.',
+            };
         default:
             return {
                 title: 'NEMSU Match',
@@ -170,7 +180,8 @@ export function showBrowserNotificationIfAllowed(
     if (typeof window === 'undefined' || !('Notification' in window)) return;
     if (Notification.permission !== 'granted') return;
     if (localStorage.getItem(STORAGE_KEY) !== '1') return;
-    if (!document.hidden) return;
+    // Show when tab is in background; also show test notifications when focused so superadmin can verify
+    if (!document.hidden && payload.type !== 'test') return;
 
     const { title, body } = getNotificationTitleAndBody(payload);
     const iconPath = payload.from_user?.profile_picture as string | undefined;

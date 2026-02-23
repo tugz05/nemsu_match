@@ -213,6 +213,7 @@ Route::middleware(['auth', 'verified', 'superadmin'])->prefix('superadmin')->nam
     Route::post('settings', [\App\Http\Controllers\Superadmin\SettingsController::class, 'store'])->name('settings.store');
     Route::put('settings/{appSetting}', [\App\Http\Controllers\Superadmin\SettingsController::class, 'update'])->name('settings.update');
     Route::delete('settings/{appSetting}', [\App\Http\Controllers\Superadmin\SettingsController::class, 'destroy'])->name('settings.destroy');
+    Route::post('settings/test-browser-notification', [\App\Http\Controllers\Superadmin\SettingsController::class, 'testBrowserNotification'])->name('settings.test-browser-notification');
     // Campuses (base locations for Find Your Match)
     Route::get('campuses', [\App\Http\Controllers\Superadmin\CampusController::class, 'index'])->name('campuses.index');
     Route::get('campuses/create', [\App\Http\Controllers\Superadmin\CampusController::class, 'create'])->name('campuses.create');

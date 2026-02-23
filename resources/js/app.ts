@@ -31,10 +31,12 @@ createInertiaApp({
 // This will set light / dark mode on page load...
 initializeTheme();
 
-// Subscribe to app status changes for automatic navigation
+// Subscribe to app status changes for automatic navigation (only when Pusher/Echo is configured)
 function subscribeToAppStatus() {
+    const Echo = getEcho();
+    if (!Echo) return;
     try {
-        const statusChannel = window.Echo.channel('app-status');
+        const statusChannel = Echo.channel('app-status');
 
         // Listen for maintenance mode changes
         statusChannel.listen('.MaintenanceModeChanged', (e: any) => {
@@ -91,13 +93,13 @@ router.on('navigate', (event) => {
         const payload: RealtimeNotificationPayload = {
             id: e.id ?? 0,
             type: e.type ?? 'unknown',
-            from_user_id: e.from_user_id,
+            from_user_id: e.from_user_id ?? 0,
             from_user: e.from_user ?? null,
-            notifiable_type: e.notifiable_type,
-            notifiable_id: e.notifiable_id,
-            data: e.data ?? null,
+            notifiable_type: e.notifiable_type ?? 'user',
+            notifiable_id: e.notifiable_id ?? null,
+            data: (e.data && typeof e.data === 'object') ? e.data : null,
             read_at: e.read_at ?? null,
-            created_at: e.created_at,
+            created_at: e.created_at ?? new Date().toISOString(),
         };
         window.dispatchEvent(new CustomEvent('realtime-notification', { detail: payload }));
         showBrowserNotificationIfAllowed(payload, appName);
