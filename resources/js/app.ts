@@ -127,8 +127,11 @@ router.on('navigate', (event) => {
 // Run subscription on initial page load (navigate only fires on client-side navigation, not first load)
 if (typeof window !== 'undefined') {
     subscribeToAppStatus();
-    // Initial page props: from Inertia (div data-page or script[data-page="app"])
-    const runInitialNotificationSubscription = () => {
+
+    const win = window as Window & { inertiaPageProps?: { auth?: { user?: { id?: number } } } };
+
+    // Initial page props: from Inertia (div data-page or script[data-page="app"]). Run as early as possible so we read before Inertia may mutate the DOM.
+    function runInitialNotificationSubscription(): void {
         let pageJson: string | null = null;
         const root = document.getElementById('app');
         if (root?.getAttribute('data-page')) pageJson = root.getAttribute('data-page');
@@ -139,17 +142,35 @@ if (typeof window !== 'undefined') {
         if (pageJson) {
             try {
                 const page = JSON.parse(pageJson) as { props?: { auth?: { user?: { id?: number } } } };
-                if (page?.props) setupUserNotificationChannel(page.props);
+                if (page?.props) {
+                    win.inertiaPageProps = page.props;
+                    setupUserNotificationChannel(page.props);
+                }
             } catch {
                 // ignore
             }
         }
-        const win = window as Window & { inertiaPageProps?: { auth?: { user?: { id?: number } } } };
         if (!subscribedUserId && win.inertiaPageProps) setupUserNotificationChannel(win.inertiaPageProps);
-    };
-    if (document.readyState === 'complete') {
-        setTimeout(runInitialNotificationSubscription, 100);
-    } else {
-        window.addEventListener('load', () => setTimeout(runInitialNotificationSubscription, 100));
     }
+
+    // Run immediately (before Inertia app mounts) so data-page is still in the DOM
+    runInitialNotificationSubscription();
+    // Retry after DOM ready in case initial run was too early
+    if (document.readyState !== 'complete') {
+        window.addEventListener('load', () => runInitialNotificationSubscription());
+    }
+    // Retry again after a short delay if still not subscribed (catches late-rendered or different HTML structure)
+    setTimeout(() => {
+        if (!subscribedUserId && getEcho()) runInitialNotificationSubscription();
+    }, 300);
+    setTimeout(() => {
+        if (!subscribedUserId && getEcho()) runInitialNotificationSubscription();
+    }, 800);
+
+    // When user returns to tab, re-ensure subscription (fixes missed subscribe after soft navigation)
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'visible') return;
+        if (subscribedUserId || !getEcho()) return;
+        if (win.inertiaPageProps?.auth?.user?.id) setupUserNotificationChannel(win.inertiaPageProps);
+    });
 }
