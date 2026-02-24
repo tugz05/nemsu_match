@@ -57,6 +57,7 @@ class HandleInertiaRequests extends Middleware
                 'freemium_enabled' => $freemiumEnabled,
                 'is_plus' => $isPlus,
             ],
+            'vapid_public_key' => config('webpush.vapid.public_key') ?: null,
         ];
     }
 }

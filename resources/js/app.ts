@@ -6,6 +6,7 @@ import '../css/app.css';
 import { initializeTheme } from './composables/useAppearance';
 import { showBrowserNotificationIfAllowed } from './composables/useBrowserNotifications';
 import type { RealtimeNotificationPayload } from './composables/useRealtimeNotifications';
+import { subscribeToPush } from './composables/usePushSubscription';
 import './echo';
 import { getEcho } from './echo';
 import PermissionPrompt from './components/PermissionPrompt.vue';
@@ -119,16 +120,26 @@ function setupUserNotificationChannel(pageProps: { auth?: { user?: { id?: number
     };
 }
 
+// Ensure Web Push is subscribed when user has notifications enabled (so notifications work when browser is closed).
+function ensurePushSubscriptionIfEnabled(props: { auth?: { user?: { id?: number } }; vapid_public_key?: string | null } | undefined): void {
+    if (typeof window === 'undefined') return;
+    if (!props?.auth?.user?.id || !props.vapid_public_key) return;
+    if (typeof Notification !== 'undefined' && Notification.permission !== 'granted') return;
+    if (localStorage.getItem('browser_notifications_enabled') !== '1') return;
+    subscribeToPush(props.vapid_public_key);
+}
+
 router.on('navigate', (event) => {
-    const props = event.detail.page.props as { auth?: { user?: { id?: number } } };
+    const props = event.detail.page.props as { auth?: { user?: { id?: number } }; vapid_public_key?: string | null };
     setupUserNotificationChannel(props);
+    ensurePushSubscriptionIfEnabled(props);
 });
 
 // Run subscription on initial page load (navigate only fires on client-side navigation, not first load)
 if (typeof window !== 'undefined') {
     subscribeToAppStatus();
 
-    const win = window as Window & { inertiaPageProps?: { auth?: { user?: { id?: number } } } };
+    const win = window as Window & { inertiaPageProps?: { auth?: { user?: { id?: number } }; vapid_public_key?: string | null } };
 
     // Initial page props: from Inertia (div data-page or script[data-page="app"]). Run as early as possible so we read before Inertia may mutate the DOM.
     function runInitialNotificationSubscription(): void {
@@ -141,10 +152,11 @@ if (typeof window !== 'undefined') {
         }
         if (pageJson) {
             try {
-                const page = JSON.parse(pageJson) as { props?: { auth?: { user?: { id?: number } } } };
+                const page = JSON.parse(pageJson) as { props?: { auth?: { user?: { id?: number } }; vapid_public_key?: string | null } };
                 if (page?.props) {
                     win.inertiaPageProps = page.props;
                     setupUserNotificationChannel(page.props);
+                    ensurePushSubscriptionIfEnabled(page.props);
                 }
             } catch {
                 // ignore

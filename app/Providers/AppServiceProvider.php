@@ -4,8 +4,11 @@ namespace App\Providers;
 
 use App\Models\Superadmin\AppSetting;
 use Carbon\CarbonImmutable;
+use App\Events\NotificationSent;
+use App\Listeners\SendWebPushForNotification;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\Facades\View;
@@ -27,6 +30,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Event::listen(NotificationSent::class, SendWebPushForNotification::class);
+
         $this->configureDefaults();
         $this->configureVitePreload();
         $this->shareBrandingWithViews();

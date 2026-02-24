@@ -14,6 +14,7 @@ use App\Http\Controllers\AnnouncementController; // Public API Controller
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PostController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\ConsentController;
 use App\Http\Controllers\ProfileSetupController;
 use App\Http\Controllers\UserController;
@@ -194,6 +195,8 @@ Route::middleware(['auth', 'verified', 'profile.completed'])->group(function () 
     Route::get('api/notifications/unread-count', [NotificationController::class, 'unreadCount'])->name('notifications.unread-count');
     Route::put('api/notifications/{notification}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
     Route::post('api/notifications/read-all', [NotificationController::class, 'markAllAsRead'])->name('notifications.read-all');
+    Route::post('api/push-subscribe', [PushSubscriptionController::class, 'store'])->name('push.subscribe');
+    Route::delete('api/push-subscribe', [PushSubscriptionController::class, 'destroy'])->name('push.unsubscribe');
 });
 
 Route::get('post/{post}', function (\App\Models\Post $post) {

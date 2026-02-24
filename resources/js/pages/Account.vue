@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
-import { Head, router, useForm } from '@inertiajs/vue3';
+import { Head, router, useForm, usePage } from '@inertiajs/vue3';
 import { User, Mail, MapPin, GraduationCap, Calendar, Heart, Book, Target, Trophy, Camera, Edit2, LogOut, ChevronRight, ChevronLeft, Settings, Plus, Trash2, MapPinned, Bell } from 'lucide-vue-next';
 import TagsInput from '@/components/ui/tags-input/TagsInput.vue';
 import { profilePictureSrc } from '@/composables/useProfilePictureSrc';
 import { useBrowserNotifications } from '@/composables/useBrowserNotifications';
+import { subscribeToPush, unsubscribeFromPush } from '@/composables/usePushSubscription';
 import TutorialPrompt from '@/components/TutorialPrompt.vue';
 import { useCsrfToken } from '@/composables/useCsrfToken';
 import { BottomNav, FullscreenImageViewer } from '@/components/feed';
@@ -91,7 +92,9 @@ const activeTab = ref<'gallery' | 'about'>('about');
 const showSettingsMenu = ref(false);
 const showRequirePictureDialog = ref(false);
 
-// Browser notifications (native Notification API)
+// Browser notifications (native Notification API + Web Push for when browser is closed)
+const page = usePage();
+const vapidPublicKey = (page.props as { vapid_public_key?: string | null }).vapid_public_key ?? null;
 const browserNotif = useBrowserNotifications();
 // Computed so template reactivity tracks the composable ref; use this for all UI bindings
 const browserNotifEnabled = computed({
@@ -99,14 +102,17 @@ const browserNotifEnabled = computed({
     set: (v: boolean) => {
         if (!v) {
             browserNotif.setEnabled(false);
+            unsubscribeFromPush();
             return;
         }
         if (browserNotif.permission === 'granted') {
             browserNotif.setEnabled(true);
+            subscribeToPush(vapidPublicKey);
             return;
         }
         browserNotif.requestPermission().then((result) => {
             if (result !== 'granted') browserNotif.setEnabled(false);
+            else subscribeToPush(vapidPublicKey);
         }).catch(() => browserNotif.setEnabled(false));
     },
 });
