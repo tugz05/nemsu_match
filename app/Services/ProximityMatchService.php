@@ -3,9 +3,12 @@
 namespace App\Services;
 
 use App\Models\AiProximityMatch;
+use App\Models\AnonymousChatRoom;
 use App\Models\Campus;
-use App\Models\SwipeAction;
+use App\Models\NearbyTap;
+use App\Models\Notification;
 use App\Models\User;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
 use OpenAI\Laravel\Facades\OpenAI;
 
@@ -19,6 +22,9 @@ class ProximityMatchService
 
     /** Radius (meters) from campus base for radar "nearest users" list. */
     public const RADAR_RADIUS_M = 500;
+
+    /** Consider user "active" for nearby if last_seen_at is within this many minutes. */
+    public const ACTIVE_NEARBY_MINUTES = 15;
 
     /**
      * Get campus model by name (matches users.campus string).
@@ -277,54 +283,382 @@ class ProximityMatchService
     }
 
     /**
-     * Proximity alarm (Love Alarm style): count of users who have romantic feelings for this user
-     * (liked them with dating intent) and are within 10m. Same campus only. Anonymous count only.
+     * Find Your Match: count of nearby users (same campus, preferred_gender, active, within radius).
+     * These are the hearts shown outside the circle (tap to notify).
      */
     public function getLikersWithin10mCount(User $user): int
     {
-        if ($user->latitude === null || $user->longitude === null) {
-            return 0;
-        }
+        return count($this->getNearbyUsersWithPosition($user));
+    }
 
-        $campusName = $user->campus;
-        if ($campusName === null || trim($campusName) === '') {
-            return 0;
-        }
-
-        $likerIds = SwipeAction::query()
+    /**
+     * Count of distinct users who have tapped you (from nearby_taps table). Shown inside the central circle.
+     */
+    public function getTappedYouCount(User $user): int
+    {
+        return NearbyTap::query()
             ->where('target_user_id', $user->id)
-            ->where('intent', SwipeAction::INTENT_DATING)
-            ->distinct()
+            ->select('user_id')
+            ->groupBy('user_id')
+            ->get()
+            ->count();
+    }
+
+    /**
+     * List of tappers (users who tapped you) that you can "tap back". Returns tokens; only includes
+     * tappers with whom you don't already have an anonymous chat room (so tap back can create the room).
+     *
+     * @return list<array{token: string}>
+     */
+    public function getTappersForTapBack(User $viewer): array
+    {
+        $tapperIds = NearbyTap::query()
+            ->where('target_user_id', $viewer->id)
             ->pluck('user_id')
+            ->unique()
             ->all();
 
-        if ($likerIds === []) {
-            return 0;
+        $roomUserPairs = AnonymousChatRoom::query()
+            ->where(function ($q) use ($viewer) {
+                $q->where('user1_id', $viewer->id)->orWhere('user2_id', $viewer->id);
+            })
+            ->get(['user1_id', 'user2_id']);
+
+        $alreadyInRoom = [];
+        foreach ($roomUserPairs as $room) {
+            $other = $room->user1_id === $viewer->id ? $room->user2_id : $room->user1_id;
+            $alreadyInRoom[$other] = true;
         }
 
-        $likers = User::query()
-            ->whereIn('id', $likerIds)
-            ->where('campus', $campusName)
+        $result = [];
+        $exp = now()->addMinutes(15)->timestamp;
+        foreach ($tapperIds as $tapperId) {
+            if (isset($alreadyInRoom[$tapperId])) {
+                continue;
+            }
+            $payload = [
+                'tapper_id' => $tapperId,
+                'vid' => $viewer->id,
+                'exp' => $exp,
+            ];
+            $result[] = ['token' => Crypt::encryptString(json_encode($payload))];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Decode tap-back token and return tapper user ID if valid. Token must have vid = viewer->id.
+     */
+    public function decodeTapBackToken(string $token, User $viewer): ?int
+    {
+        try {
+            $json = Crypt::decryptString($token);
+            $payload = json_decode($json, true);
+            if (! is_array($payload) || ! isset($payload['tapper_id'], $payload['vid'], $payload['exp'])) {
+                return null;
+            }
+            if ((int) $payload['vid'] !== (int) $viewer->id) {
+                return null;
+            }
+            if ((int) $payload['exp'] < time()) {
+                return null;
+            }
+
+            return (int) $payload['tapper_id'];
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Record tap-back: viewer taps back tapper. Creates NearbyTap(viewer, tapper). If mutual, creates/gets AnonymousChatRoom.
+     *
+     * @return array{mutual: bool, room_id?: int}
+     */
+    public function tapBack(User $viewer, int $tapperId): array
+    {
+        if ($viewer->id === $tapperId) {
+            return ['mutual' => false];
+        }
+
+        NearbyTap::firstOrCreate(
+            ['user_id' => $viewer->id, 'target_user_id' => $tapperId],
+            ['user_id' => $viewer->id, 'target_user_id' => $tapperId]
+        );
+
+        if (! NearbyTap::areMutual($viewer->id, $tapperId)) {
+            return ['mutual' => false];
+        }
+
+        $room = AnonymousChatRoom::getOrCreateForPair($viewer->id, $tapperId);
+
+        return ['mutual' => true, 'room_id' => $room->id];
+    }
+
+    /**
+     * All nearby users by location only (no prior like required). Same campus, preferred_gender, active, within radius.
+     * Bearing from viewer to user (0=North, 90=East). Used for Find Your Match hearts; tap = notify that user.
+     *
+     * @return list<array{id: int, distance_from_me_m: float, bearing_deg: float}>
+     */
+    public function getNearbyUsersWithPosition(User $viewer): array
+    {
+        if ($viewer->latitude === null || $viewer->longitude === null) {
+            return [];
+        }
+
+        $campusName = $viewer->campus;
+        if ($campusName === null || trim($campusName) === '') {
+            return [];
+        }
+
+        $campusNormalized = strtolower(trim($campusName));
+        $activeSince = now()->subMinutes(self::ACTIVE_NEARBY_MINUTES);
+        $candidates = User::query()
+            ->where('id', '!=', $viewer->id)
             ->whereNotNull('latitude')
             ->whereNotNull('longitude')
-            ->get(['id', 'latitude', 'longitude']);
+            ->where(function ($q) use ($activeSince) {
+                $q->where('last_seen_at', '>=', $activeSince)
+                    ->orWhere('location_updated_at', '>=', $activeSince);
+            })
+            ->get(['id', 'latitude', 'longitude', 'campus', 'gender']);
 
-        $count = 0;
-        $myLat = (float) $user->latitude;
-        $myLon = (float) $user->longitude;
-        foreach ($likers as $liker) {
-            $dist = NearbyMatchService::distanceMeters(
-                $myLat,
-                $myLon,
-                (float) $liker->latitude,
-                (float) $liker->longitude
-            );
-            if ($dist !== null && $dist <= 10.0) {
-                $count++;
+        $preferredGender = $viewer->preferred_gender ? trim((string) $viewer->preferred_gender) : null;
+        $myLat = (float) $viewer->latitude;
+        $myLon = (float) $viewer->longitude;
+        /** @var float Radius in meters */
+        $radiusM = 15.0;
+
+        // Exclude users who already mutually tapped (have an anonymous chat room with viewer)
+        $alreadyInRoomIds = AnonymousChatRoom::query()
+            ->where(function ($q) use ($viewer) {
+                $q->where('user1_id', $viewer->id)->orWhere('user2_id', $viewer->id);
+            })
+            ->get(['user1_id', 'user2_id'])
+            ->map(fn ($room) => $room->user1_id === $viewer->id ? $room->user2_id : $room->user1_id)
+            ->flip()
+            ->all();
+
+        $nearby = [];
+        foreach ($candidates as $other) {
+            if (isset($alreadyInRoomIds[$other->id])) {
+                continue;
+            }
+            if (strtolower(trim((string) $other->campus)) !== $campusNormalized) {
+                continue;
+            }
+            if ($preferredGender !== null && $preferredGender !== '' && trim((string) $other->gender) !== $preferredGender) {
+                continue;
+            }
+            $otherLat = trim((string) $other->latitude);
+            $otherLon = trim((string) $other->longitude);
+            if ($otherLat === '' || $otherLon === '') {
+                continue;
+            }
+            $lat2 = (float) $other->latitude;
+            $lon2 = (float) $other->longitude;
+            $dist = NearbyMatchService::distanceMeters($myLat, $myLon, $lat2, $lon2);
+            if ($dist !== null && $dist <= $radiusM) {
+                $bearing = NearbyMatchService::bearingDegrees($myLat, $myLon, $lat2, $lon2);
+                $nearby[] = [
+                    'id' => $other->id,
+                    'distance_from_me_m' => round($dist, 2),
+                    'bearing_deg' => round($bearing, 1),
+                ];
             }
         }
 
-        return $count;
+        return $nearby;
+    }
+
+    /**
+     * User IDs of everyone within radius of the given user (same campus, has location). Used to broadcast count updates.
+     *
+     * @return list<int>
+     */
+    public function getUserIdsWithinRadiusOf(User $centerUser, float $radiusM = 15.0): array
+    {
+        if ($centerUser->latitude === null || $centerUser->longitude === null) {
+            return [];
+        }
+        $campusName = $centerUser->campus;
+        if ($campusName === null || trim($campusName) === '') {
+            return [];
+        }
+        $campusNormalized = strtolower(trim($campusName));
+        $others = User::query()
+            ->where('id', '!=', $centerUser->id)
+            ->whereNotNull('latitude')
+            ->whereNotNull('longitude')
+            ->get(['id', 'latitude', 'longitude', 'campus']);
+        $myLat = (float) $centerUser->latitude;
+        $myLon = (float) $centerUser->longitude;
+        $ids = [];
+        foreach ($others as $other) {
+            if (strtolower(trim((string) $other->campus)) !== $campusNormalized) {
+                continue;
+            }
+            $lat2 = (float) $other->latitude;
+            $lon2 = (float) $other->longitude;
+            $dist = NearbyMatchService::distanceMeters($myLat, $myLon, $lat2, $lon2);
+            if ($dist !== null && $dist <= $radiusM) {
+                $ids[] = $other->id;
+            }
+        }
+        return $ids;
+    }
+
+    /**
+     * Return list of nearby hearts with token, position, and whether the viewer already tapped this user.
+     *
+     * @return list<array{token: string, distance_from_me_m: float, bearing_deg: float, already_tapped_by_me: bool}>
+     */
+    public function getNearbyLikersWithTokens(User $viewer): array
+    {
+        $withPosition = $this->getNearbyUsersWithPosition($viewer);
+        $result = [];
+        $exp = now()->addMinutes(10)->timestamp;
+        foreach ($withPosition as $n) {
+            $alreadyTapped = NearbyTap::query()
+                ->where('user_id', $viewer->id)
+                ->where('target_user_id', $n['id'])
+                ->exists();
+            $payload = [
+                'lid' => $n['id'],
+                'vid' => $viewer->id,
+                'exp' => $exp,
+            ];
+            $result[] = [
+                'token' => Crypt::encryptString(json_encode($payload)),
+                'distance_from_me_m' => $n['distance_from_me_m'],
+                'bearing_deg' => $n['bearing_deg'],
+                'already_tapped_by_me' => $alreadyTapped,
+            ];
+        }
+        return $result;
+    }
+
+    /**
+     * Debug info: viewer location and all same-campus candidates with lat/long and why included or excluded.
+     *
+     * @return array{viewer: array, active_since: string, radius_m: float, nearby_candidates: list<array>}
+     */
+    public function getProximityDebugInfo(User $viewer): array
+    {
+        $activeSince = now()->subMinutes(self::ACTIVE_NEARBY_MINUTES);
+        $radiusM = 15.0;
+        $campusName = $viewer->campus;
+        $campusNormalized = $campusName !== null && trim($campusName) !== '' ? strtolower(trim($campusName)) : null;
+        $preferredGender = $viewer->preferred_gender ? trim((string) $viewer->preferred_gender) : null;
+        $myLat = $viewer->latitude !== null ? (float) $viewer->latitude : null;
+        $myLon = $viewer->longitude !== null ? (float) $viewer->longitude : null;
+
+        $candidatesRaw = $campusNormalized !== null
+            ? User::query()
+                ->where('id', '!=', $viewer->id)
+                ->whereNotNull('latitude')
+                ->whereNotNull('longitude')
+                ->whereRaw('LOWER(TRIM(campus)) = ?', [$campusNormalized])
+                ->get(['id', 'latitude', 'longitude', 'campus', 'gender', 'last_seen_at', 'location_updated_at'])
+            : collect([]);
+
+        $nearbyCandidates = [];
+        foreach ($candidatesRaw as $other) {
+            $sameCampus = strtolower(trim((string) $other->campus)) === $campusNormalized;
+            if (! $sameCampus) {
+                continue;
+            }
+            $lat = $other->latitude !== null && trim((string) $other->latitude) !== '' ? (float) $other->latitude : null;
+            $lon = $other->longitude !== null && trim((string) $other->longitude) !== '' ? (float) $other->longitude : null;
+            $genderMatch = $preferredGender === null || $preferredGender === '' || trim((string) $other->gender) === $preferredGender;
+            $lastSeen = $other->last_seen_at;
+            $locUpdated = $other->location_updated_at;
+            $active = ($lastSeen && $lastSeen->gte($activeSince)) || ($locUpdated && $locUpdated->gte($activeSince));
+            $distance = null;
+            if ($myLat !== null && $myLon !== null && $lat !== null && $lon !== null) {
+                $distance = NearbyMatchService::distanceMeters($myLat, $myLon, $lat, $lon);
+            }
+            $distanceOk = $distance !== null && $distance <= $radiusM;
+            $included = $genderMatch && $active && $distanceOk;
+            $reasons = [];
+            if (! $genderMatch) {
+                $reasons[] = 'gender_mismatch';
+            }
+            if (! $active) {
+                $reasons[] = 'not_active';
+            }
+            if (! $distanceOk) {
+                $reasons[] = $distance === null ? 'no_distance' : 'distance_' . round($distance, 2) . 'm';
+            }
+            $nearbyCandidates[] = [
+                'id' => $other->id,
+                'lat' => $lat,
+                'lon' => $lon,
+                'campus' => (string) $other->campus,
+                'gender' => $other->gender,
+                'distance_m' => $distance,
+                'gender_match' => $genderMatch,
+                'active' => $active,
+                'distance_ok' => $distanceOk,
+                'included' => $included,
+                'reason' => $included ? 'ok' : implode(', ', $reasons),
+            ];
+        }
+
+        return [
+            'viewer' => [
+                'user_id' => $viewer->id,
+                'lat' => $myLat,
+                'lon' => $myLon,
+                'campus' => $viewer->campus,
+                'preferred_gender' => $viewer->preferred_gender,
+            ],
+            'active_since' => $activeSince->toIso8601String(),
+            'radius_m' => $radiusM,
+            'nearby_candidates' => $nearbyCandidates,
+            'likers' => $nearbyCandidates,
+        ];
+    }
+
+    /**
+     * Record that viewer tapped target (e.g. when tapping a heart). Used for tap-back and mutual anonymous chat.
+     */
+    public function recordTap(User $viewer, int $targetUserId): void
+    {
+        if ($viewer->id === $targetUserId) {
+            return;
+        }
+        NearbyTap::firstOrCreate(
+            ['user_id' => $viewer->id, 'target_user_id' => $targetUserId],
+            ['user_id' => $viewer->id, 'target_user_id' => $targetUserId]
+        );
+    }
+
+    /**
+     * Decode a tap token and return the target user ID (whose heart was tapped) if valid for this viewer.
+     *
+     * @return int|null Target user ID to notify, or null if invalid/expired
+     */
+    public function decodeNearbyTapToken(string $token, User $viewer): ?int
+    {
+        try {
+            $json = Crypt::decryptString($token);
+            $payload = json_decode($json, true);
+            if (! is_array($payload) || ! isset($payload['lid'], $payload['vid'], $payload['exp'])) {
+                return null;
+            }
+            if ((int) $payload['vid'] !== (int) $viewer->id) {
+                return null;
+            }
+            if ((int) $payload['exp'] < time()) {
+                return null;
+            }
+            return (int) $payload['lid'];
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function isUserEligible(User $u): bool

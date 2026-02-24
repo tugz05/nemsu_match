@@ -1,9 +1,23 @@
 /**
  * Browser (native) notifications: permission, preference, and title/body for realtime payloads.
+ * On iOS: Web Notifications only work in iOS 16.4+ and when the app is added to Home Screen (PWA).
  */
-import { ref, shallowRef } from 'vue';
+import { ref, shallowRef, computed } from 'vue';
 
 const STORAGE_KEY = 'browser_notifications_enabled';
+
+/** Detect iOS (iPhone, iPad, iPod) via userAgent only — avoid false positives on touchscreen Macs/PCs. */
+export function isIOSUserAgent(): boolean {
+    if (typeof navigator === 'undefined') return false;
+    return /iPad|iPhone|iPod/.test(navigator.userAgent);
+}
+
+/** True when running as standalone (e.g. added to home screen). */
+export function isStandalone(): boolean {
+    if (typeof window === 'undefined') return false;
+    const w = window as Window & { standalone?: boolean };
+    return !!w.navigator?.standalone || (w.matchMedia?.('(display-mode: standalone)')?.matches ?? false);
+}
 
 export interface RealtimeNotificationPayload {
     id: number;
@@ -23,16 +37,22 @@ export interface RealtimeNotificationPayload {
 }
 
 export function useBrowserNotifications() {
-    const isSupported = typeof window !== 'undefined' && 'Notification' in window;
+    const hasNotificationAPI = typeof window !== 'undefined' && 'Notification' in window;
+    const ios = typeof window !== 'undefined' ? isIOSUserAgent() : false;
+    /** Show the toggle whenever the browser has the Notification API (non‑iOS and iOS both get the switch). */
+    const isSupported = hasNotificationAPI;
+    const isIOS = ref(ios);
+    /** On iOS, notifications only work when app is added to Home Screen; show hint when not standalone. */
+    const needsPWAHint = computed(() => ios && !isStandalone());
     const permission = shallowRef<NotificationPermission>(
-        isSupported ? Notification.permission : 'denied'
+        hasNotificationAPI ? Notification.permission : 'denied'
     );
     const isEnabled = ref(
-        isSupported && localStorage.getItem(STORAGE_KEY) === '1'
+        hasNotificationAPI && localStorage.getItem(STORAGE_KEY) === '1'
     );
 
     function refreshPermission() {
-        if (isSupported) {
+        if (hasNotificationAPI) {
             permission.value = Notification.permission;
             // If user revoked permission in browser, clear the "enabled" preference so UI stays in sync
             if (Notification.permission === 'denied' && isEnabled.value) {
@@ -43,18 +63,19 @@ export function useBrowserNotifications() {
     }
 
     function setEnabled(value: boolean) {
-        if (isSupported) {
+        // Always update ref so the toggle UI updates
+        isEnabled.value = value;
+        if (hasNotificationAPI) {
             if (value) {
                 localStorage.setItem(STORAGE_KEY, '1');
             } else {
                 localStorage.removeItem(STORAGE_KEY);
             }
-            isEnabled.value = value;
         }
     }
 
     async function requestPermission(): Promise<NotificationPermission> {
-        if (!isSupported) return 'denied';
+        if (!hasNotificationAPI) return 'denied';
         const result = await Notification.requestPermission();
         permission.value = result;
         if (result === 'granted') {
@@ -65,6 +86,8 @@ export function useBrowserNotifications() {
 
     return {
         isSupported,
+        isIOS,
+        needsPWAHint,
         permission,
         isEnabled,
         setEnabled,
@@ -87,6 +110,7 @@ export function getNotificationTitleAndBody(
 
     switch (payload.type) {
         case 'message': {
+            // Regular chat message: show sender name and message excerpt
             const excerpt = (d.excerpt as string) || 'New message';
             return {
                 title: name,
@@ -156,6 +180,11 @@ export function getNotificationTitleAndBody(
                 title: 'Match nearby',
                 body: `Hey! ${name} is nearby—say hi or plan to meet up!`,
             };
+        case 'nearby_heart_tap':
+            return {
+                title: 'Someone tapped your heart',
+                body: 'Open Find Your Match to tap back.',
+            };
         case 'test':
             return {
                 title: 'NEMSU Match - Test',
@@ -164,14 +193,17 @@ export function getNotificationTitleAndBody(
         default:
             return {
                 title: 'NEMSU Match',
-                body: `${name} interacted with you`,
+                body: payload.from_user
+                    ? `${name} sent you a notification`
+                    : (payload.data?.excerpt as string) || 'You have a new notification',
             };
     }
 }
 
 /**
- * Show a native browser notification if permission granted and preference enabled.
- * Call from a global listener when document is hidden (user on another tab or minimized).
+ * Show a native browser notification for every received notification when permission and preference are enabled.
+ * Includes: message chat, message requests, matches, follows, nearby tap, etc.
+ * All notification data is used to build title/body; shown regardless of tab focus.
  */
 export function showBrowserNotificationIfAllowed(
     payload: RealtimeNotificationPayload,
@@ -180,11 +212,13 @@ export function showBrowserNotificationIfAllowed(
     if (typeof window === 'undefined' || !('Notification' in window)) return;
     if (Notification.permission !== 'granted') return;
     if (localStorage.getItem(STORAGE_KEY) !== '1') return;
-    // Show when tab is in background; also show test notifications when focused so superadmin can verify
-    if (!document.hidden && payload.type !== 'test') return;
 
     const { title, body } = getNotificationTitleAndBody(payload);
-    const iconPath = payload.from_user?.profile_picture as string | undefined;
+    // Anonymous types (e.g. nearby_heart_tap): do not use sender's profile as icon
+    const iconPath =
+        payload.type === 'nearby_heart_tap'
+            ? undefined
+            : (payload.from_user?.profile_picture as string | undefined);
     const icon = iconPath
         ? `${window.location.origin}/storage/${iconPath.replace(/^\//, '')}`
         : undefined;
@@ -197,9 +231,13 @@ export function showBrowserNotificationIfAllowed(
     notification.onclick = () => {
         window.focus();
         notification.close();
+        // Message chat, message requests, and request accepted: open Chat (with conversation when available)
         if (payload.type === 'message' || payload.type === 'message_request' || payload.type === 'message_request_accepted') {
-            const convId = payload.notifiable_type === 'conversation' ? payload.notifiable_id : (payload.data?.conversation_id as number);
-            if (convId) {
+            const convId =
+                payload.notifiable_type === 'conversation'
+                    ? Number(payload.notifiable_id)
+                    : (payload.data?.conversation_id != null ? Number(payload.data.conversation_id) : null);
+            if (convId && !Number.isNaN(convId)) {
                 window.location.href = `${window.location.origin}/chat?conversation=${convId}`;
             } else {
                 window.location.href = `${window.location.origin}/chat`;
@@ -210,6 +248,8 @@ export function showBrowserNotificationIfAllowed(
             window.location.href = `${window.location.origin}/like-you?tab=match_back`;
         } else if (payload.type === 'follow') {
             window.location.href = `${window.location.origin}/profile/${payload.from_user_id}`;
+        } else if (payload.type === 'nearby_heart_tap') {
+            window.location.href = `${window.location.origin}/find-your-match?show_tap_back=1`;
         } else {
             window.location.href = `${window.location.origin}/notifications`;
         }

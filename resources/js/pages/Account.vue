@@ -92,16 +92,26 @@ const showRequirePictureDialog = ref(false);
 
 // Browser notifications (native Notification API)
 const browserNotif = useBrowserNotifications();
+// Computed so template reactivity tracks the composable ref; use this for all UI bindings
+const browserNotifEnabled = computed({
+    get: () => !!browserNotif.isEnabled.value,
+    set: (v: boolean) => {
+        if (!v) {
+            browserNotif.setEnabled(false);
+            return;
+        }
+        if (browserNotif.permission === 'granted') {
+            browserNotif.setEnabled(true);
+            return;
+        }
+        browserNotif.requestPermission().then((result) => {
+            if (result !== 'granted') browserNotif.setEnabled(false);
+        }).catch(() => browserNotif.setEnabled(false));
+    },
+});
 
 async function toggleBrowserNotifications() {
-    if (browserNotif.isEnabled) {
-        browserNotif.setEnabled(false);
-        return;
-    }
-    const result = await browserNotif.requestPermission();
-    if (result !== 'granted') {
-        browserNotif.refreshPermission();
-    }
+    browserNotifEnabled.value = !browserNotifEnabled.value;
 }
 
 // Nearby match: preferences (synced from props, updated via API)
@@ -160,6 +170,11 @@ async function reportLocation() {
     navigator.geolocation.getCurrentPosition(
         async (pos) => {
             try {
+                try {
+                    localStorage.setItem('nemsu_match_location_granted', '1');
+                } catch {
+                    // ignore
+                }
                 const res = await fetch('/api/account/location', {
                     method: 'PUT',
                     credentials: 'same-origin',
@@ -587,23 +602,26 @@ onMounted(() => {
                             <button
                                 type="button"
                                 role="switch"
-                                :aria-checked="browserNotif.isEnabled"
+                                :aria-checked="browserNotifEnabled"
                                 @click="toggleBrowserNotifications"
-                                :disabled="browserNotif.permission === 'denied' && !browserNotif.isEnabled"
-                                class="relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
-                                :class="browserNotif.isEnabled ? 'bg-blue-600' : 'bg-gray-200'"
+                                :disabled="browserNotif.permission === 'denied' && !browserNotifEnabled"
+                                class="relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                :class="browserNotifEnabled ? 'bg-blue-600' : 'bg-gray-200'"
                             >
                                 <span
                                     class="pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition"
-                                    :class="browserNotif.isEnabled ? 'translate-x-5' : 'translate-x-1'"
+                                    :class="browserNotifEnabled ? 'translate-x-5' : 'translate-x-1'"
                                 />
                             </button>
                         </div>
                         <p v-if="browserNotif.permission === 'denied'" class="text-sm text-amber-600">
                             Notifications were blocked. Enable them in your browser settings for this site, then turn this on again.
                         </p>
-                        <p v-else-if="browserNotif.permission === 'default' && !browserNotif.isEnabled" class="text-sm text-gray-500">
+                        <p v-else-if="browserNotif.permission === 'default' && !browserNotifEnabled" class="text-sm text-gray-500">
                             Turn on to allow this site to show notifications (you'll be asked for permission).
+                        </p>
+                        <p v-if="browserNotif.needsPWAHint" class="text-sm text-amber-600 mt-3">
+                            On iPhone/iPad, notifications only work when the app is added to your <strong>Home Screen</strong> (Safari → Share → Add to Home Screen). Open the app from the home screen to use notifications.
                         </p>
                     </template>
                 </div>

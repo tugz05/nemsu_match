@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { router } from '@inertiajs/vue3';
-import { Bell } from 'lucide-vue-next';
+import { Bell, Heart } from 'lucide-vue-next';
 import { useCsrfToken } from '@/composables/useCsrfToken';
 import { profilePictureSrc } from '@/composables/useProfilePictureSrc';
 
@@ -41,6 +41,9 @@ const loading = ref(false);
 const getCsrfToken = useCsrfToken();
 
 function message(n: NotificationPreview): string {
+    if (n.type === 'nearby_heart_tap') {
+        return "Someone tapped your heart—open Find Your Match to tap back.";
+    }
     const name = n.from_user?.display_name || n.from_user?.fullname || 'Someone';
     const d = n.data ?? {};
     switch (n.type) {
@@ -111,6 +114,8 @@ async function onItemClick(n: NotificationPreview) {
         router.visit(`/like-you?tab=matches&show_match=${n.from_user_id}`);
     } else if (n.type === 'high_compatibility_match') {
         router.visit('/like-you?tab=discover');
+    } else if (n.type === 'nearby_heart_tap') {
+        router.visit('/find-your-match?show_tap_back=1');
     } else if (n.type === 'message' || n.type === 'message_request' || n.type === 'message_request_accepted') {
         const conversationId = n.notifiable_type === 'conversation' ? n.notifiable_id : n.data?.conversation_id;
         if (conversationId) router.visit(`/chat?conversation=${conversationId}`);
@@ -169,16 +174,19 @@ function goToAll() {
                         @click="onItemClick(n)"
                         class="w-full flex gap-3 p-3 text-left hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0"
                     >
-                        <div class="w-9 h-9 rounded-full overflow-hidden bg-gradient-to-br from-blue-100 to-cyan-100 flex-shrink-0">
-                            <img
-                                v-if="n.from_user?.profile_picture"
-                                :src="profilePictureSrc(n.from_user?.profile_picture)"
-                                :alt="n.from_user.display_name"
-                                class="w-full h-full object-cover"
-                            />
-                            <div v-else class="w-full h-full flex items-center justify-center text-blue-600 font-bold text-sm">
-                                {{ (n.from_user?.display_name || n.from_user?.fullname || '?').charAt(0).toUpperCase() }}
-                            </div>
+                        <div class="w-9 h-9 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center" :class="n.type === 'nearby_heart_tap' ? 'bg-rose-100 text-rose-600' : 'bg-gradient-to-br from-blue-100 to-cyan-100'">
+                            <Heart v-if="n.type === 'nearby_heart_tap'" class="w-4 h-4" />
+                            <template v-else>
+                                <img
+                                    v-if="n.from_user?.profile_picture"
+                                    :src="profilePictureSrc(n.from_user.profile_picture)"
+                                    :alt="n.from_user?.display_name"
+                                    class="w-full h-full object-cover"
+                                />
+                                <div v-else class="w-full h-full flex items-center justify-center text-blue-600 font-bold text-sm">
+                                    {{ (n.from_user?.display_name || n.from_user?.fullname || '?').charAt(0).toUpperCase() }}
+                                </div>
+                            </template>
                         </div>
                         <div class="flex-1 min-w-0">
                             <p class="text-sm text-gray-900 font-medium leading-snug">{{ message(n) }}</p>

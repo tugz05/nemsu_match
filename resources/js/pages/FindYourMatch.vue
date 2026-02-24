@@ -1,19 +1,41 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
+import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
 import { Heart, ChevronLeft, MapPin } from 'lucide-vue-next';
 import { BottomNav } from '@/components/feed';
 import { useCsrfToken } from '@/composables/useCsrfToken';
 import { getEcho } from '@/echo';
 
-/** Data we need: campus (for scope) and anonymous count of people with romantic interest within 10m */
-interface ProximityData {
-    campus: string | null;
-    likers_within_10m_count: number;
+/** One heart = one nearby user (anonymous); position by bearing/distance so hearts appear on the sides */
+interface NearbyHeart {
+    token: string;
+    distance_from_me_m: number;
+    bearing_deg: number;
+    already_tapped_by_me?: boolean;
 }
 
+/** Token for tap-back (someone who tapped you; tap back to open anonymous chat when mutual) */
+interface TapBackToken {
+    token: string;
+}
+
+/** Data we need: campus, preferred_gender, nearby count, tapped-you count, tappers for tap-back, hearts list */
+interface ProximityData {
+    campus: string | null;
+    preferred_gender: string | null;
+    likers_within_10m_count: number;
+    tapped_you_count: number;
+    tappers_for_tap_back: TapBackToken[];
+    nearby_hearts: NearbyHeart[];
+}
+
+const props = withDefaults(
+    defineProps<{ show_tap_back?: boolean }>(),
+    { show_tap_back: false }
+);
 const getCsrfToken = useCsrfToken();
 const data = ref<ProximityData | null>(null);
+const tapBackCardRef = ref<HTMLElement | null>(null);
 const loading = ref(true);
 const CALCULATING_MIN_MS = 1800;
 const calculating = ref(true);
@@ -22,27 +44,92 @@ const locationError = ref<string | null>(null);
 const geoPermission = ref<'granted' | 'denied' | 'prompt' | 'unsupported' | 'unknown'>('unknown');
 const watchId = ref<number | null>(null);
 let proximityChannelLeave: (() => void) | null = null;
+let campusChannelLeave: (() => void) | null = null;
 const alarmJustTriggered = ref(false);
+const notifyingToken = ref<string | null>(null);
+const tapMessage = ref<string | null>(null);
+const notifiedTokens = ref<string[]>([]);
+const tapBackSending = ref<string | null>(null);
+/** Last position from browser (for debug console log) */
+const lastKnownPosition = ref<{ lat: number; lon: number } | null>(null);
+const DEBUG = true; // set to true to log proximity debug in console
+
+function campusSlug(name: string | null | undefined): string {
+    if (!name || typeof name !== 'string') return 'default';
+    return name.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || 'default';
+}
 
 const showLocationDeniedBanner = computed(() => geoPermission.value === 'denied');
-const likersWithin10m = computed(() => data.value?.likers_within_10m_count ?? 0);
+/** Nearby users (hearts outside the circle) — tap to notify */
+const nearbyCount = computed(() => data.value?.likers_within_10m_count ?? 0);
+/** Users who have tapped you (shown inside the circle) */
+const tappedYouCount = computed(() => data.value?.tapped_you_count ?? 0);
+const tappersForTapBack = computed(() => data.value?.tappers_for_tap_back ?? []);
+const nearbyHearts = computed(() => data.value?.nearby_hearts ?? []);
+/** Show up to 9 nearby hearts (cater less than 10) for a clear, emphasized layout */
+const MAX_VISIBLE_HEARTS = 9;
+const visibleHearts = computed(() => nearbyHearts.value.slice(0, MAX_VISIBLE_HEARTS));
+const preferredGender = computed(() => data.value?.preferred_gender ?? null);
+
+/** True if this heart represents someone we've already tapped (server flag or just tapped this session) */
+function isTappedByMe(heart: NearbyHeart): boolean {
+    return !!(heart.already_tapped_by_me ?? false) || notifiedTokens.value.includes(heart.token);
+}
+
+/** Position a heart around the center. Tappable hearts must be OUTSIDE the circle (circle radius = 100px). */
+const RADAR_SIZE_PX = 260;
+const CIRCLE_RADIUS_PX = 100;
+/** Min radius so heart blips (56px) sit fully outside the circle: circle + half blip + gap */
+const RADAR_INNER = CIRCLE_RADIUS_PX + 32;
+const RADAR_OUTER = CIRCLE_RADIUS_PX + 72;
+function heartPosition(heart: NearbyHeart): { left: string; top: string } {
+    const dist = Math.min(12, Math.max(0, heart.distance_from_me_m));
+    const radiusPx = RADAR_INNER + (dist / 12) * (RADAR_OUTER - RADAR_INNER);
+    const angleRad = ((90 - heart.bearing_deg) * Math.PI) / 180;
+    const x = radiusPx * Math.cos(angleRad);
+    const y = -radiusPx * Math.sin(angleRad);
+    const leftPct = 50 + (x / RADAR_SIZE_PX) * 100;
+    const topPct = 50 + (y / RADAR_SIZE_PX) * 100;
+    return { left: `${leftPct}%`, top: `${topPct}%` };
+}
 
 async function fetchData() {
     loading.value = true;
     try {
-        const res = await fetch('/api/proximity-match', {
+        const url = DEBUG ? '/api/proximity-match?debug=1' : '/api/proximity-match';
+        const res = await fetch(url, {
             credentials: 'same-origin',
             headers: { 'X-CSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
         });
         if (!res.ok) {
             data.value = null;
+            if (DEBUG) console.log('[Find Your Match DEBUG] API error:', res.status);
             return;
         }
         const json = await res.json();
+        const hearts = Array.isArray(json.nearby_hearts) ? json.nearby_hearts : [];
+        const tappers = Array.isArray(json.tappers_for_tap_back) ? json.tappers_for_tap_back : [];
         data.value = {
             campus: json.campus ?? null,
+            preferred_gender: json.preferred_gender ?? null,
             likers_within_10m_count: typeof json.likers_within_10m_count === 'number' ? json.likers_within_10m_count : 0,
+            tapped_you_count: typeof json.tapped_you_count === 'number' ? json.tapped_you_count : 0,
+            tappers_for_tap_back: tappers.map((t: { token?: string }) => t?.token != null ? { token: t.token } : null).filter(Boolean) as TapBackToken[],
+            nearby_hearts: hearts.map((h: { token?: string; distance_from_me_m?: number; bearing_deg?: number; already_tapped_by_me?: boolean }) =>
+                h?.token != null ? {
+                    token: h.token,
+                    distance_from_me_m: typeof h.distance_from_me_m === 'number' ? h.distance_from_me_m : 6,
+                    bearing_deg: typeof h.bearing_deg === 'number' ? h.bearing_deg : 0,
+                    already_tapped_by_me: !!h.already_tapped_by_me,
+                } : null
+            ).filter(Boolean) as NearbyHeart[],
         };
+        if (DEBUG && json.proximity_debug) {
+            console.log('[Find Your Match DEBUG] Browser last known position (lat, lon):', lastKnownPosition.value);
+            console.log('[Find Your Match DEBUG] Server-side viewer (stored in DB):', json.proximity_debug.viewer);
+            console.log('[Find Your Match DEBUG] Nearby candidates and why included/excluded:', json.proximity_debug.nearby_candidates ?? json.proximity_debug.likers);
+            console.log('[Find Your Match DEBUG] Full proximity_debug:', json.proximity_debug);
+        }
     } finally {
         loading.value = false;
     }
@@ -50,31 +137,67 @@ async function fetchData() {
 
 async function refreshProximityOnly() {
     try {
-        const res = await fetch('/api/proximity-match', {
+        const url = DEBUG ? '/api/proximity-match?debug=1' : '/api/proximity-match';
+        const res = await fetch(url, {
             credentials: 'same-origin',
             headers: { 'X-CSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
         });
         if (!res.ok) return;
         const json = await res.json();
         if (data.value) {
+            const hearts = Array.isArray(json.nearby_hearts) ? json.nearby_hearts : [];
+            const tappers = Array.isArray(json.tappers_for_tap_back) ? json.tappers_for_tap_back : [];
             data.value = {
                 campus: data.value.campus,
+                preferred_gender: typeof json.preferred_gender === 'string' ? json.preferred_gender : data.value.preferred_gender,
                 likers_within_10m_count: typeof json.likers_within_10m_count === 'number' ? json.likers_within_10m_count : data.value.likers_within_10m_count,
+                tapped_you_count: typeof json.tapped_you_count === 'number' ? json.tapped_you_count : data.value.tapped_you_count,
+                tappers_for_tap_back: tappers.map((t: { token?: string }) => t?.token != null ? { token: t.token } : null).filter(Boolean) as TapBackToken[],
+                nearby_hearts: hearts.map((h: { token?: string; distance_from_me_m?: number; bearing_deg?: number; already_tapped_by_me?: boolean }) =>
+                    h?.token != null ? {
+                        token: h.token,
+                        distance_from_me_m: typeof h.distance_from_me_m === 'number' ? h.distance_from_me_m : 6,
+                        bearing_deg: typeof h.bearing_deg === 'number' ? h.bearing_deg : 0,
+                        already_tapped_by_me: !!h.already_tapped_by_me,
+                    } : null
+                ).filter(Boolean) as NearbyHeart[],
             };
+        }
+        if (DEBUG && json.proximity_debug) {
+            console.log('[Find Your Match DEBUG] (refresh) Browser position:', lastKnownPosition.value);
+            console.log('[Find Your Match DEBUG] (refresh) Server viewer:', json.proximity_debug.viewer);
+            console.log('[Find Your Match DEBUG] (refresh) Nearby candidates:', json.proximity_debug.nearby_candidates ?? json.proximity_debug.likers);
         }
     } catch {
         // ignore
     }
 }
 
+const FETCH_TIMEOUT_MS = 15000;
+
 async function runCalculation() {
     calculating.value = true;
     const start = Date.now();
-    await fetchData();
-    const elapsed = Date.now() - start;
-    const remaining = Math.max(0, CALCULATING_MIN_MS - elapsed);
-    await new Promise((r) => setTimeout(r, remaining));
-    calculating.value = false;
+    try {
+        await Promise.race([
+            fetchData(),
+            new Promise<void>((_, reject) =>
+                setTimeout(() => reject(new Error('timeout')), FETCH_TIMEOUT_MS)
+            ),
+        ]);
+    } catch {
+        data.value = null;
+        if (DEBUG) console.log('[Find Your Match DEBUG] Initial load failed or timed out');
+    } finally {
+        loading.value = false;
+        const elapsed = Date.now() - start;
+        const remaining = Math.max(0, CALCULATING_MIN_MS - elapsed);
+        await new Promise((r) => setTimeout(r, remaining));
+        calculating.value = false;
+        if (data.value?.campus) {
+            subscribeToCampusLocationUpdates(data.value.campus);
+        }
+    }
 }
 
 function goBack() {
@@ -114,6 +237,12 @@ function updateLocationForMatch() {
         async (pos) => {
             try {
                 geoPermission.value = 'granted';
+                lastKnownPosition.value = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+                try {
+                    localStorage.setItem('nemsu_match_location_granted', '1');
+                } catch {
+                    // ignore
+                }
                 const res = await fetch('/api/account/location', {
                     method: 'PUT',
                     credentials: 'same-origin',
@@ -153,6 +282,7 @@ function startRealtimeLocationWatch() {
         async (pos) => {
             try {
                 geoPermission.value = 'granted';
+                lastKnownPosition.value = { lat: pos.coords.latitude, lon: pos.coords.longitude };
                 await fetch('/api/account/location', {
                     method: 'PUT',
                     credentials: 'same-origin',
@@ -204,6 +334,103 @@ function subscribeToProximityUpdates() {
     };
 }
 
+async function notifyNearbyUser(heart: NearbyHeart) {
+    if (notifiedTokens.value.includes(heart.token)) return;
+    notifyingToken.value = heart.token;
+    tapMessage.value = null;
+    try {
+        const res = await fetch('/api/proximity-match/notify-nearby', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': getCsrfToken(),
+                Accept: 'application/json',
+            },
+            body: JSON.stringify({ token: heart.token }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (res.ok) {
+            notifiedTokens.value = [...notifiedTokens.value, heart.token];
+            tapMessage.value = "They've been notified!";
+        } else {
+            tapMessage.value = json.message ?? 'Could not send.';
+        }
+    } catch {
+        tapMessage.value = 'Could not send.';
+    } finally {
+        notifyingToken.value = null;
+    }
+}
+
+async function tapBack(tapBackEntry: TapBackToken) {
+    if (tapBackSending.value !== null) return;
+    tapBackSending.value = tapBackEntry.token;
+    tapMessage.value = null;
+    try {
+        const res = await fetch('/api/proximity-match/tap-back', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': getCsrfToken(),
+                Accept: 'application/json',
+            },
+            body: JSON.stringify({ token: tapBackEntry.token }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (res.ok && json.mutual && json.room_id) {
+            router.visit('/chat?tab=matchchat&room=' + encodeURIComponent(json.room_id));
+            return;
+        }
+        if (res.ok) {
+            tapMessage.value = "Tap back sent! If they've tapped you too, you'll see them in Match Chat.";
+            await fetchData();
+        } else {
+            tapMessage.value = json.message ?? 'Could not tap back.';
+        }
+    } catch {
+        tapMessage.value = 'Could not tap back.';
+    } finally {
+        tapBackSending.value = null;
+        if (tapMessage.value) {
+            setTimeout(() => { tapMessage.value = null; }, 3000);
+        }
+    }
+}
+
+function subscribeToCampusLocationUpdates(campusName: string | null | undefined) {
+    const Echo = getEcho();
+    if (!Echo || !campusName?.trim()) return;
+    if (campusChannelLeave) {
+        campusChannelLeave();
+        campusChannelLeave = null;
+    }
+    const slug = campusSlug(campusName);
+    const channel = Echo.channel(`campus.${slug}`);
+    channel.listen('.RadarUpdated', () => {
+        void refreshProximityOnly();
+    });
+    campusChannelLeave = () => {
+        Echo.leave(`campus.${slug}`);
+        campusChannelLeave = null;
+    };
+}
+
+/** When coming from "someone tapped you" notification, scroll to tap-back section once data is loaded */
+function maybeScrollToTapBack() {
+    if (!props.show_tap_back || tappersForTapBack.value.length === 0) return;
+    nextTick(() => {
+        tapBackCardRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+}
+
+watch(
+    () => [tappersForTapBack.value.length, props.show_tap_back] as const,
+    () => maybeScrollToTapBack(),
+    { immediate: true }
+);
+
 onMounted(() => {
     void checkGeolocationPermission();
     updateLocationForMatch();
@@ -220,6 +447,10 @@ onBeforeUnmount(() => {
     if (proximityChannelLeave) {
         proximityChannelLeave();
         proximityChannelLeave = null;
+    }
+    if (campusChannelLeave) {
+        campusChannelLeave();
+        campusChannelLeave = null;
     }
 });
 </script>
@@ -274,16 +505,16 @@ onBeforeUnmount(() => {
             </Transition>
         </div>
 
-        <main class="relative z-10 w-full find-match-container flex flex-col items-center pt-4 pb-6">
+        <main class="relative z-10 w-full find-match-container flex flex-col items-center justify-center min-h-[calc(100dvh-140px)] pt-4 pb-6">
             <!-- No campus -->
             <section
                 v-if="!calculating && !data?.campus"
                 class="find-match-concept-empty w-full text-center py-8"
             >
                 <Heart class="find-match-concept-empty-icon mx-auto mb-4 text-[var(--fm-accent-soft)]" stroke-width="1.5" fill="none" />
-                <h2 class="find-match-concept-title">Proximity alarm is based on your campus</h2>
+                <h2 class="find-match-concept-title">Find Your Match is based on your campus</h2>
                 <p class="find-match-muted mt-2 max-w-xs mx-auto">
-                    Set your campus in your profile. The app will ring when someone who has romantic feelings for you enters a 10m radius — we only show the number, not who they are.
+                    Set your campus in your profile. You'll see nearby users (same campus, within 10m) as hearts. Tap a heart to notify them — no prior like required.
                 </p>
             </section>
 
@@ -317,42 +548,113 @@ onBeforeUnmount(() => {
                 <p class="find-match-loading-sub find-match-loading-sub-2">{{ data?.campus ? 'Based on ' + data.campus : 'Waiting for response…' }}</p>
             </section>
 
-            <!-- Heart only: message + circle with one heart (outline/filled) + count -->
+            <!-- Heart only: message + circle (centered vertically) + emphasized heart blips -->
             <section
                 v-if="!calculating && data?.campus"
-                class="find-match-hero w-full flex flex-col items-center text-center"
+                class="find-match-hero find-match-hero-centered w-full flex flex-col items-center text-center"
             >
                 <p class="find-match-hero-message">
-                    {{ likersWithin10m === 0
-                        ? 'No one within a 10m radius loves you'
-                        : likersWithin10m === 1
-                            ? 'Someone within a 10m radius loves you'
-                            : likersWithin10m + ' people within a 10m radius love you' }}
+                    {{ nearbyCount === 0
+                        ? 'No one nearby within 10m'
+                        : nearbyCount === 1
+                            ? '1 person nearby'
+                            : nearbyCount + ' people nearby' }}
                 </p>
-                <div class="find-match-hero-circle" :class="{ 'find-match-hero-circle-active': likersWithin10m > 0 }">
-                    <Heart
-                        class="find-match-hero-heart"
-                        :class="{ 'find-match-hero-heart-filled': likersWithin10m > 0 }"
-                        :fill="likersWithin10m > 0 ? 'currentColor' : 'none'"
-                        stroke="currentColor"
-                        stroke-width="2"
-                    />
+                <!-- Radar: static circle + echo always fixed; only nearby hearts move dynamically -->
+                <div class="find-match-hero-radar-wrap">
+                    <div class="find-match-hero-radar" :style="{ width: RADAR_SIZE_PX + 'px', height: RADAR_SIZE_PX + 'px' }">
+                        <!-- Static layer: circle + echo (position never changes) -->
+                        <div class="find-match-hero-static-layer">
+                            <div class="find-match-hero-echo find-match-hero-echo-1" aria-hidden="true" />
+                            <div class="find-match-hero-echo find-match-hero-echo-2" aria-hidden="true" />
+                            <div class="find-match-hero-echo find-match-hero-echo-3" aria-hidden="true" />
+                            <div class="find-match-hero-circle find-match-hero-circle-center" :class="{ 'find-match-hero-circle-active': tappedYouCount > 0 }">
+                                <div class="find-match-hero-circle-inner">
+                                    <Heart
+                                        class="find-match-hero-heart find-match-hero-heart-single find-match-hero-heart-filled"
+                                        fill="currentColor"
+                                        stroke="currentColor"
+                                        stroke-width="2"
+                                    />
+                                    <span class="find-match-hero-count-inner" aria-label="Number of people who tapped you">{{ tappedYouCount }}</span>
+                                    <span class="find-match-hero-count-label text-[9px] text-white/70 uppercase tracking-wide">tapped you</span>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Dynamic layer: nearby user hearts only (positions update when nearby list changes) -->
+                        <button
+                            v-for="(heart, index) in visibleHearts"
+                            :key="heart.token"
+                            type="button"
+                            class="find-match-hero-heart-btn find-match-hero-heart-positioned find-match-hero-heart-blip-wrap"
+                            :style="heartPosition(heart)"
+                            :class="{
+                                'find-match-hero-heart-btn-tapped': isTappedByMe(heart),
+                                'find-match-hero-heart-btn-loading': notifyingToken === heart.token,
+                            }"
+                            :disabled="isTappedByMe(heart) || notifyingToken !== null"
+                            :aria-label="`${isTappedByMe(heart) ? 'Already tapped' : 'Notify'} nearby user ${index + 1}, ${heart.distance_from_me_m}m away`"
+                            @click="notifyNearbyUser(heart)"
+                        >
+                            <span class="find-match-hero-blip-echo find-match-hero-blip-echo-1" aria-hidden="true" />
+                            <span class="find-match-hero-blip-echo find-match-hero-blip-echo-2" aria-hidden="true" />
+                            <Heart
+                                class="find-match-hero-heart find-match-hero-heart-blip"
+                                :class="{ 'find-match-hero-heart-tapped': isTappedByMe(heart) }"
+                                fill="currentColor"
+                                stroke="currentColor"
+                                stroke-width="2"
+                            />
+                        </button>
+                    </div>
+                    <p v-if="tapMessage" class="find-match-hero-toast">{{ tapMessage }}</p>
                 </div>
-                <p class="find-match-hero-count">{{ likersWithin10m }}</p>
+                <p v-if="nearbyCount > 0" class="find-match-hero-hint mt-1">Hearts outside = people nearby · Tap to notify them</p>
+                <p v-if="nearbyCount > MAX_VISIBLE_HEARTS" class="find-match-hero-hint find-match-hero-hint-sub mt-0.5">Showing {{ MAX_VISIBLE_HEARTS }} of {{ nearbyCount }} nearby</p>
+                <p v-if="tappersForTapBack.length > 0" class="find-match-tap-back-prompt mt-2 text-xs font-medium text-white/95">
+                    {{ tappersForTapBack.length === 1 ? '1 person tapped you — tap back below to open anonymous chat' : tappersForTapBack.length + ' people tapped you — tap back below' }}
+                </p>
+
+                <!-- Someone tapped you: tap back to start anonymous chat (once mutual, opens Match Chat) -->
+                <div
+                    v-if="tappersForTapBack.length > 0"
+                    ref="tapBackCardRef"
+                    class="find-match-tap-back-card mt-4 w-full max-w-sm mx-auto rounded-2xl bg-white/10 border border-white/20 p-4 text-left"
+                >
+                    <p class="text-sm font-medium text-white/95 flex items-center gap-2">
+                        <Heart class="w-4 h-4 text-rose-400 shrink-0" />
+                        Someone tapped your heart
+                    </p>
+                    <p class="text-xs text-white/80 mt-1.5">Tap back below to open anonymous chat. When you both tap each other, you'll go to Match Chat — no profiles shown.</p>
+                    <p class="text-[11px] text-white/70 mt-2 font-medium">How to tap back:</p>
+                    <ol class="text-[11px] text-white/70 mt-0.5 list-decimal list-inside space-y-0.5">
+                        <li>They tapped your heart (you got a notification)</li>
+                        <li>Tap the button below to tap back</li>
+                        <li>When mutual, you'll open Match Chat to chat anonymously</li>
+                    </ol>
+                    <div class="mt-3 flex flex-wrap gap-2">
+                        <button
+                            v-for="(entry, idx) in tappersForTapBack"
+                            :key="entry.token"
+                            type="button"
+                            class="px-4 py-2.5 rounded-xl text-sm font-semibold bg-rose-500/90 text-white hover:bg-rose-500 disabled:opacity-60 transition-colors"
+                            :disabled="tapBackSending !== null"
+                            @click="tapBack(entry)"
+                        >
+                            {{ tapBackSending === entry.token ? '…' : (tappersForTapBack.length > 1 ? `Tap back ${idx + 1}` : 'Tap back') }}
+                        </button>
+                    </div>
+                </div>
             </section>
 
-            <!-- Footer: campus + update location -->
+            <!-- Footer: campus, preferred gender, auto location note -->
             <div v-if="!calculating && data?.campus" class="find-match-radar-footer w-full flex flex-col items-center gap-1 mt-2">
-                <p class="find-match-muted text-[10px]">Based on {{ data.campus }}</p>
-                <button
-                    type="button"
-                    class="find-match-link-ghost inline-flex items-center gap-1 text-[10px] font-medium text-[var(--fm-accent-soft)] hover:underline disabled:opacity-60"
-                    :disabled="locationUpdating"
-                    @click="updateLocationForMatch"
-                >
-                    <MapPin class="w-3 h-3" />
-                    {{ locationUpdating ? 'Updating…' : 'Update location' }}
-                </button>
+                <p class="find-match-muted text-[10px]">Based on {{ data.campus }} · 10m radius</p>
+                <p v-if="preferredGender" class="find-match-muted text-[10px]">Preferred: {{ preferredGender }}</p>
+                <p class="find-match-muted text-[10px] inline-flex items-center gap-1">
+                    <MapPin class="w-3 h-3 shrink-0" />
+                    Location updates automatically in real time
+                </p>
                 <p v-if="locationError" class="find-match-warning text-[10px]">{{ locationError }}</p>
             </div>
         </main>
@@ -432,10 +734,13 @@ onBeforeUnmount(() => {
     box-shadow: 0 1px 0 rgba(255, 255, 255, 0.4) inset;
 }
 
-/* Hero: message + circle + one heart (outline/filled) + count */
+/* Hero: message + circle (centered vertically) + heart blips */
 .find-match-hero {
     padding: 1.5rem 0 1.25rem;
     animation: fadeInUp 0.45s ease forwards;
+}
+.find-match-hero-centered {
+    justify-content: center;
 }
 
 .find-match-hero-message {
@@ -453,7 +758,125 @@ onBeforeUnmount(() => {
     .find-match-hero-message { font-size: 1.25rem; }
 }
 
+.find-match-hero-circle-wrap {
+    position: relative;
+    width: 200px;
+    height: 200px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.find-match-hero-radar-wrap {
+    width: 260px;
+    height: 260px;
+    min-height: 260px;
+    margin-left: auto;
+    margin-right: auto;
+    flex-shrink: 0;
+}
+.find-match-hero-radar {
+    position: relative;
+    width: 260px;
+    height: 260px;
+    margin: 0;
+    display: block;
+}
+/* Static layer: circle + echo rings — position never changes; only dynamic hearts move */
+.find-match-hero-static-layer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+.find-match-hero-heart-positioned {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    z-index: 2;
+}
+/* Wrapper for blip: echo rings + heart (emphasized, larger) */
+.find-match-hero-heart-blip-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    width: 56px;
+    height: 56px;
+}
+/* Echo animation for each nearby heart blip */
+.find-match-hero-blip-echo {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 44px;
+    height: 44px;
+    margin-left: -22px;
+    margin-top: -22px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    pointer-events: none;
+    animation: find-match-blip-echo 1.8s ease-out infinite;
+}
+.find-match-hero-blip-echo-1 { animation-delay: 0s; }
+.find-match-hero-blip-echo-2 { animation-delay: 0.6s; }
+@keyframes find-match-blip-echo {
+    0% {
+        transform: scale(0.7);
+        opacity: 0.7;
+        border-color: rgba(255, 255, 255, 0.5);
+    }
+    100% {
+        transform: scale(1.8);
+        opacity: 0;
+        border-color: rgba(255, 255, 255, 0.05);
+    }
+}
+.find-match-hero-circle-center {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1;
+}
+
+/* Echo rings: same center as heart circle, use transform so they stay aligned */
+.find-match-hero-echo {
+    position: absolute;
+    width: 200px;
+    height: 200px;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    transform-origin: 50% 50%;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    animation: find-match-echo 2.2s ease-out infinite;
+    pointer-events: none;
+    box-sizing: border-box;
+}
+
+.find-match-hero-echo-1 { animation-delay: 0s; }
+.find-match-hero-echo-2 { animation-delay: 0.73s; }
+.find-match-hero-echo-3 { animation-delay: 1.46s; }
+
+@keyframes find-match-echo {
+    0% {
+        transform: translate(-50%, -50%) scale(0.85);
+        opacity: 0.6;
+        border-color: rgba(255, 255, 255, 0.4);
+    }
+    100% {
+        transform: translate(-50%, -50%) scale(1.45);
+        opacity: 0;
+        border-color: rgba(255, 255, 255, 0.05);
+    }
+}
+
 .find-match-hero-circle {
+    position: relative;
+    z-index: 1;
     width: 200px;
     height: 200px;
     border-radius: 50%;
@@ -461,12 +884,23 @@ onBeforeUnmount(() => {
     box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3),
         0 0 40px rgba(255, 255, 255, 0.2),
         inset 0 0 30px rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.08);
+    animation: find-match-heartbeat 1.6s ease-in-out infinite;
+    transition: border-color 0.35s ease, box-shadow 0.35s ease;
+}
+/* Inner content centered as one unit so heart aligns with echo rings */
+.find-match-hero-circle-inner {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    background: rgba(255, 255, 255, 0.08);
-    margin: 0 auto;
-    transition: border-color 0.35s ease, box-shadow 0.35s ease;
+    gap: 0.25rem;
+    width: 100%;
+    pointer-events: none;
 }
 
 .find-match-hero-circle-active {
@@ -474,35 +908,146 @@ onBeforeUnmount(() => {
     box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.3),
         0 0 50px rgba(244, 63, 94, 0.25),
         inset 0 0 30px rgba(255, 255, 255, 0.08);
+    animation: find-match-heartbeat 1.4s ease-in-out infinite;
+}
+
+@keyframes find-match-heartbeat {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); }
+    14% { transform: translate(-50%, -50%) scale(1.03); }
+    28% { transform: translate(-50%, -50%) scale(1); }
+    42% { transform: translate(-50%, -50%) scale(1.025); }
+    56% { transform: translate(-50%, -50%) scale(1); }
 }
 
 .find-match-hero-heart {
-    width: 80px;
-    height: 80px;
     color: rgba(255, 255, 255, 0.95);
-    filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.15));
+    filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.7)) drop-shadow(0 2px 6px rgba(255, 255, 255, 0.4));
     transition: color 0.3s ease, filter 0.3s ease;
 }
 
+.find-match-hero-heart-single {
+    width: 80px;
+    height: 80px;
+}
 .find-match-hero-heart-filled {
-    color: #f43f5e;
-    filter: drop-shadow(0 0 16px rgba(244, 63, 94, 0.5)) drop-shadow(0 2px 8px rgba(0, 0, 0, 0.2));
+    color: var(--fm-heart);
+    filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.75)) drop-shadow(0 0 14px rgba(244, 63, 94, 0.4)) drop-shadow(0 2px 6px rgba(255, 255, 255, 0.35));
+}
+.find-match-hero-circle-active .find-match-hero-heart-filled {
+    color: var(--fm-heart);
+    filter: drop-shadow(0 0 16px rgba(255, 255, 255, 0.8)) drop-shadow(0 0 18px rgba(244, 63, 94, 0.55)) drop-shadow(0 2px 6px rgba(255, 255, 255, 0.4));
 }
 
-.find-match-hero-count {
-    margin-top: 1.25rem;
-    font-size: 3.5rem;
+.find-match-hero-hearts-grid {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    max-width: 160px;
+}
+
+.find-match-hero-heart-btn {
+    padding: 0.25rem;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    border-radius: 50%;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.find-match-hero-heart-btn:hover:not(:disabled) {
+    transform: translate(-50%, -50%) scale(1.12);
+}
+.find-match-hero-heart-btn:disabled {
+    cursor: default;
+}
+.find-match-hero-heart-btn-loading {
+    opacity: 0.7;
+    pointer-events: none;
+}
+.find-match-hero-heart-blip {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+    color: #f43f5e;
+    filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.7)) drop-shadow(0 0 12px rgba(244, 63, 94, 0.5)) drop-shadow(0 2px 6px rgba(255, 255, 255, 0.35));
+}
+/* Already tapped by you: different color (muted amber/gold) so it’s clear you’ve notified them */
+.find-match-hero-heart-tapped,
+.find-match-hero-heart-btn-tapped .find-match-hero-heart-blip {
+    color: #fbbf24;
+    filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.6)) drop-shadow(0 0 6px rgba(251, 191, 36, 0.5)) drop-shadow(0 1px 4px rgba(255, 255, 255, 0.3));
+}
+.find-match-hero-heart-btn-tapped {
+    cursor: default;
+    opacity: 0.95;
+}
+.find-match-hero-hint {
+    font-size: 0.625rem;
+    color: rgba(255, 255, 255, 0.95);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 0 10px rgba(0, 0, 0, 0.15);
+}
+.find-match-hero-hint-sub {
+    color: rgba(255, 255, 255, 0.85);
+}
+.find-match-hero-toast {
+    margin-top: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.95);
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.find-match-hero-hearts-more {
+    position: absolute;
+    bottom: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.95);
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.find-match-hero-count-inner {
+    font-size: 2.5rem;
     font-weight: 800;
     color: #fff;
     text-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
     line-height: 1;
     letter-spacing: -0.03em;
 }
+.find-match-hero-count-label {
+    white-space: nowrap;
+    line-height: 1.2;
+}
+.find-match-hero-count {
+    margin-top: 1.5rem;
+    font-size: 3.5rem;
+    font-weight: 800;
+    color: #fff;
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+    line-height: 1;
+    letter-spacing: -0.03em;
+    display: block;
+    width: 100%;
+    text-align: center;
+}
 
 @media (min-width: 640px) {
+    .find-match-hero-circle-wrap { width: 220px; height: 220px; }
+    .find-match-hero-echo { width: 220px; height: 220px; }
     .find-match-hero-circle { width: 220px; height: 220px; }
-    .find-match-hero-heart { width: 90px; height: 90px; }
+    .find-match-hero-heart-single { width: 90px; height: 90px; }
+    .find-match-hero-hearts-grid { max-width: 180px; gap: 0.4rem; }
+    .find-match-hero-heart-blip { width: 48px; height: 48px; }
+    .find-match-hero-heart-blip-wrap { width: 64px; height: 64px; }
+    .find-match-hero-blip-echo { width: 52px; height: 52px; margin-left: -26px; margin-top: -26px; }
     .find-match-hero-count { font-size: 4rem; }
+}
+
+.find-match-tap-back-prompt {
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
 
 .find-match-container {
@@ -565,6 +1110,16 @@ onBeforeUnmount(() => {
     font-size: 0.6875rem;
     color: var(--fm-secondary);
     line-height: 1.45;
+}
+/* Footer text: high contrast on gradient (white + shadow) */
+.find-match-radar-footer .find-match-muted,
+.find-match-radar-footer p {
+    color: rgba(255, 255, 255, 0.95);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 0 12px rgba(0, 0, 0, 0.2);
+}
+.find-match-radar-footer .find-match-warning {
+    color: #fef3c7;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
 .find-match-warning {
@@ -778,21 +1333,24 @@ onBeforeUnmount(() => {
     margin-top: 1.75rem;
     font-size: 0.8125rem;
     font-weight: 500;
-    color: var(--fm-primary);
+    color: rgba(255, 255, 255, 0.98);
     letter-spacing: 0.02em;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
     animation: shimmerText 2s ease-in-out infinite;
 }
 
 .find-match-loading-sub {
     margin-top: 0.375rem;
     font-size: 0.6875rem;
-    color: var(--fm-secondary);
+    color: rgba(255, 255, 255, 0.92);
     font-weight: 500;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 0 10px rgba(0, 0, 0, 0.2);
 }
 
 .find-match-loading-sub-2 {
     margin-top: 0.125rem;
-    opacity: 0.9;
+    color: rgba(255, 255, 255, 0.88);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
 }
 
 @media (min-width: 640px) {

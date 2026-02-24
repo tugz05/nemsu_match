@@ -16,7 +16,10 @@ class NotificationSent implements ShouldBroadcastNow
     public function __construct(
         public Notification $notification
     ) {
-        $this->notification->load('fromUser:id,display_name,fullname,profile_picture');
+        // Do not load fromUser for anonymous types (e.g. nearby_heart_tap) so profile is never sent
+        if ($this->notification->type !== 'nearby_heart_tap') {
+            $this->notification->load('fromUser:id,display_name,fullname,profile_picture');
+        }
     }
 
     /**
@@ -52,12 +55,12 @@ class NotificationSent implements ShouldBroadcastNow
             'id' => $n->id,
             'type' => $n->type,
             'from_user_id' => $n->from_user_id,
-            'from_user' => $n->fromUser ? [
+            'from_user' => $n->type === 'nearby_heart_tap' ? null : ($n->fromUser ? [
                 'id' => $n->fromUser->id,
                 'display_name' => $n->fromUser->display_name,
                 'fullname' => $n->fromUser->fullname,
                 'profile_picture' => $n->fromUser->profile_picture,
-            ] : null,
+            ] : null),
             'notifiable_type' => $n->notifiable_type,
             'notifiable_id' => $n->notifiable_id,
             'data' => $n->data,

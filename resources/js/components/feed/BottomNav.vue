@@ -4,7 +4,7 @@ import { router } from '@inertiajs/vue3';
 import { Heart, Megaphone, Radio } from 'lucide-vue-next';
 import { useCsrfToken } from '@/composables/useCsrfToken';
 
-/** Which tab is active: 'home' | 'announcements' | 'likeyou' | 'chat' | 'account' | null (none, e.g. on Notifications page) */
+/** Which tab is active: 'home' | 'announcements' | 'likeyou' | 'chat' | 'account' | null */
 const props = defineProps<{
     activeTab?: 'home' | 'announcements' | 'likeyou' | 'chat' | 'account' | null;
     /** Discover badge: use prop if provided, else fetched "who liked me" (match-back) count */

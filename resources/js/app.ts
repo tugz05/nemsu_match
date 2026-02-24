@@ -8,6 +8,7 @@ import { showBrowserNotificationIfAllowed } from './composables/useBrowserNotifi
 import type { RealtimeNotificationPayload } from './composables/useRealtimeNotifications';
 import './echo';
 import { getEcho } from './echo';
+import PermissionPrompt from './components/PermissionPrompt.vue';
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
 
@@ -19,7 +20,12 @@ createInertiaApp({
             import.meta.glob<DefineComponent>('./pages/**/*.vue'),
         ),
     setup({ el, App, props, plugin }) {
-        createApp({ render: () => h(App, props) })
+        createApp({
+            render: () => h('div', { class: 'relative' }, [
+                h(App, props),
+                h(PermissionPrompt),
+            ]),
+        })
             .use(plugin)
             .mount(el);
     },
@@ -67,11 +73,10 @@ router.on('navigate', (event) => {
 let notificationChannelLeave: (() => void) | null = null;
 let subscribedUserId: number | null = null;
 
-router.on('navigate', (event) => {
-    const props = event.detail.page.props as { auth?: { user?: { id?: number } } };
-    const userId = props.auth?.user?.id as number | undefined;
-
+function setupUserNotificationChannel(pageProps: { auth?: { user?: { id?: number } } } | undefined): void {
+    const userId = pageProps?.auth?.user?.id as number | undefined;
     const Echo = getEcho();
+
     if (!Echo || typeof userId !== 'number') {
         if (notificationChannelLeave) {
             notificationChannelLeave();
@@ -102,15 +107,49 @@ router.on('navigate', (event) => {
             created_at: e.created_at ?? new Date().toISOString(),
         };
         window.dispatchEvent(new CustomEvent('realtime-notification', { detail: payload }));
-        showBrowserNotificationIfAllowed(payload, appName);
+        try {
+            showBrowserNotificationIfAllowed(payload, appName);
+        } catch (err) {
+            console.warn('[Browser notification]', err);
+        }
     });
     notificationChannelLeave = () => {
         Echo.leave(`user.${userId}`);
         subscribedUserId = null;
     };
+}
+
+router.on('navigate', (event) => {
+    const props = event.detail.page.props as { auth?: { user?: { id?: number } } };
+    setupUserNotificationChannel(props);
 });
 
-// Initialize app status subscription
+// Run subscription on initial page load (navigate only fires on client-side navigation, not first load)
 if (typeof window !== 'undefined') {
     subscribeToAppStatus();
+    // Initial page props: from Inertia (div data-page or script[data-page="app"])
+    const runInitialNotificationSubscription = () => {
+        let pageJson: string | null = null;
+        const root = document.getElementById('app');
+        if (root?.getAttribute('data-page')) pageJson = root.getAttribute('data-page');
+        if (!pageJson) {
+            const script = document.querySelector('script[data-page="app"][type="application/json"]');
+            if (script?.textContent) pageJson = script.textContent;
+        }
+        if (pageJson) {
+            try {
+                const page = JSON.parse(pageJson) as { props?: { auth?: { user?: { id?: number } } } };
+                if (page?.props) setupUserNotificationChannel(page.props);
+            } catch {
+                // ignore
+            }
+        }
+        const win = window as Window & { inertiaPageProps?: { auth?: { user?: { id?: number } } } };
+        if (!subscribedUserId && win.inertiaPageProps) setupUserNotificationChannel(win.inertiaPageProps);
+    };
+    if (document.readyState === 'complete') {
+        setTimeout(runInitialNotificationSubscription, 100);
+    } else {
+        window.addEventListener('load', () => setTimeout(runInitialNotificationSubscription, 100));
+    }
 }

@@ -23,6 +23,14 @@ class NotificationController extends Controller
             ->latest()
             ->paginate($perPage);
 
+        // Anonymous types: do not expose from_user so profile is never shown
+        $notifications->getCollection()->transform(function ($n) {
+            if ($n->type === 'nearby_heart_tap') {
+                $n->setRelation('fromUser', null);
+            }
+            return $n;
+        });
+
         return response()->json($notifications);
     }
 

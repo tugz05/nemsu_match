@@ -40,7 +40,19 @@ const notifications = ref<NotificationItem[]>([]);
 const loading = ref(true);
 const loadingMore = ref(false);
 const nextPageUrl = ref<string | null>(null);
+/** When set, the message request card with this notification id is in the middle of accept/decline */
+const messageRequestActionId = ref<number | null>(null);
 const getCsrfToken = () => document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+
+/** Resolve message request ID for accept/decline (notifiable_id or from data). */
+function getMessageRequestId(n: NotificationItem): number | null {
+    if (n.type !== 'message_request') return null;
+    if (n.notifiable_id != null && typeof n.notifiable_id === 'number') return n.notifiable_id;
+    if (n.notifiable_type === 'message_request' && n.notifiable_id != null) return n.notifiable_id as number;
+    const d = n.data as { message_request_id?: number } | null;
+    if (d && typeof d.message_request_id === 'number') return d.message_request_id;
+    return null;
+}
 
 function toNotificationItem(p: RealtimeNotificationPayload): NotificationItem {
     return {
@@ -132,8 +144,11 @@ function isToday(dateStr: string): boolean {
 
 const showOptionsMenu = ref(false);
 
-/** Action line with @username (e.g. "@aanya followed you") */
+/** Action line with @username (e.g. "@aanya followed you"). Anonymous for nearby_heart_tap. */
 function actionLine(n: NotificationItem): string {
+    if (n.type === 'nearby_heart_tap') {
+        return "Someone tapped your heart—you're near each other!";
+    }
     const handle = n.from_user?.display_name || n.from_user?.fullname || 'someone';
     const atName = handle.startsWith('@') ? handle : `@${handle}`;
     const d = n.data ?? {};
@@ -169,6 +184,8 @@ function actionLine(n: NotificationItem): string {
             const dist = (d as { distance_text?: string }).distance_text;
             return dist ? `Hey! ${atName} is nearby (${dist})` : `Hey! A match (${atName}) is nearby.`;
         }
+        case 'nearby_heart_tap':
+            return "Someone tapped your heart—you're near each other!";
         default:
             return `${atName} interacted with you`;
     }
@@ -178,39 +195,65 @@ const todayNotifications = computed(() => notifications.value.filter((n) => isTo
 const previousNotifications = computed(() => notifications.value.filter((n) => !isToday(n.created_at)));
 
 async function acceptMessageRequest(n: NotificationItem) {
-    const id = n.notifiable_type === 'message_request' ? n.notifiable_id : null;
+    const id = getMessageRequestId(n);
     if (id == null) return;
+    if (messageRequestActionId.value !== null) return;
+    messageRequestActionId.value = n.id;
     try {
         const res = await fetch(`/api/message-requests/${id}/accept`, {
             method: 'POST',
             credentials: 'same-origin',
-            headers: { 'X-CSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': getCsrfToken(),
+                Accept: 'application/json',
+            },
+            body: '{}',
         });
         if (res.ok) {
             const data = await res.json();
             markAsRead(n);
+            removeNotification(n.id);
             const convId = data.conversation?.id;
             if (convId) router.visit(`/chat?conversation=${convId}`);
             else router.visit('/chat');
         }
     } catch (e) {
         console.error(e);
+    } finally {
+        messageRequestActionId.value = null;
     }
 }
 
 async function declineMessageRequest(n: NotificationItem) {
-    const id = n.notifiable_type === 'message_request' ? n.notifiable_id : null;
+    const id = getMessageRequestId(n);
     if (id == null) return;
+    if (messageRequestActionId.value !== null) return;
+    messageRequestActionId.value = n.id;
     try {
-        await fetch(`/api/message-requests/${id}/decline`, {
+        const res = await fetch(`/api/message-requests/${id}/decline`, {
             method: 'POST',
             credentials: 'same-origin',
-            headers: { 'X-CSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': getCsrfToken(),
+                Accept: 'application/json',
+            },
+            body: '{}',
         });
-        markAsRead(n);
+        if (res.ok) {
+            markAsRead(n);
+            removeNotification(n.id);
+        }
     } catch (e) {
         console.error(e);
+    } finally {
+        messageRequestActionId.value = null;
     }
+}
+
+function removeNotification(notificationId: number) {
+    notifications.value = notifications.value.filter((item) => item.id !== notificationId);
 }
 
 async function markAsRead(n: NotificationItem) {
@@ -262,6 +305,10 @@ function goToNotification(n: NotificationItem) {
         router.visit(`/like-you?tab=matches&show_match=${n.from_user_id}`);
         return;
     }
+    if (n.type === 'nearby_heart_tap') {
+        router.visit('/find-your-match?show_tap_back=1');
+        return;
+    }
     if (n.type === 'message' || n.type === 'message_request' || n.type === 'message_request_accepted') {
         const conversationId = n.notifiable_type === 'conversation' ? n.notifiable_id : n.data?.conversation_id;
         if (conversationId) router.visit(`/chat?conversation=${conversationId}`);
@@ -279,6 +326,9 @@ function goToNotification(n: NotificationItem) {
 }
 
 function message(n: NotificationItem): string {
+    if (n.type === 'nearby_heart_tap') {
+        return "Someone tapped your heart—open Find Your Match to tap back.";
+    }
     const name = n.from_user?.display_name || n.from_user?.fullname || 'Someone';
     const d = n.data ?? {};
     switch (n.type) {
@@ -313,6 +363,8 @@ function message(n: NotificationItem): string {
         }
         case 'nearby_match':
             return `Hey! ${name} is nearby. A match is in your area—say hi or plan to meet up!`;
+        case 'nearby_heart_tap':
+            return "Someone tapped your heart—open Find Your Match to tap back.";
         default:
             return `${name} interacted with you`;
     }
@@ -350,6 +402,8 @@ function specLabel(n: NotificationItem): string {
             return 'High match';
         case 'nearby_match':
             return 'Match nearby';
+        case 'nearby_heart_tap':
+            return 'Heart tap';
         default:
             return 'Activity';
     }
@@ -379,6 +433,8 @@ function icon(n: NotificationItem) {
             return MessageCircle;
         case 'nearby_match':
             return MapPin;
+        case 'nearby_heart_tap':
+            return Heart;
         default:
             return Bell;
     }
@@ -463,6 +519,7 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick));
                             <div
                                 v-if="n.type === 'message_request'"
                                 class="flex gap-3 p-4 rounded-2xl bg-gray-800 text-white"
+                                @click.stop
                             >
                                 <div class="w-12 h-12 rounded-full overflow-hidden bg-gray-700 flex-shrink-0">
                                     <img
@@ -482,38 +539,43 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick));
                                     <div class="flex gap-2 mt-3">
                                         <button
                                             type="button"
-                                            @click="declineMessageRequest(n)"
-                                            class="px-4 py-2 rounded-xl bg-gray-600 text-white text-sm font-semibold hover:bg-gray-500"
+                                            class="px-4 py-2 rounded-xl bg-gray-600 text-white text-sm font-semibold hover:bg-gray-500 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+                                            :disabled="messageRequestActionId === n.id"
+                                            @click.stop="declineMessageRequest(n)"
                                         >
-                                            Decline
+                                            {{ messageRequestActionId === n.id ? '…' : 'Decline' }}
                                         </button>
                                         <button
                                             type="button"
-                                            @click="acceptMessageRequest(n)"
-                                            class="px-4 py-2 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 text-white text-sm font-semibold hover:opacity-95"
+                                            class="px-4 py-2 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 text-white text-sm font-semibold hover:opacity-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+                                            :disabled="messageRequestActionId === n.id"
+                                            @click.stop="acceptMessageRequest(n)"
                                         >
-                                            Accept
+                                            {{ messageRequestActionId === n.id ? '…' : 'Accept' }}
                                         </button>
                                     </div>
                                 </div>
                             </div>
-                            <!-- Regular card -->
+                            <!-- Regular card (anonymous for nearby_heart_tap: no profile) -->
                             <button
                                 v-else
                                 type="button"
                                 @click="goToNotification(n)"
                                 class="w-full flex gap-3 p-4 rounded-2xl bg-white border border-gray-200 shadow-sm text-left hover:bg-gray-50 transition-colors"
                             >
-                                <div class="w-12 h-12 rounded-full overflow-hidden bg-gray-100 flex-shrink-0">
-                                    <img
-                                        v-if="n.from_user?.profile_picture"
-                                        :src="profilePictureSrc(n.from_user.profile_picture)"
-                                        :alt="n.from_user.display_name"
-                                        class="w-full h-full object-cover"
-                                    />
-                                    <div v-else class="w-full h-full flex items-center justify-center text-gray-500 font-bold text-lg">
-                                        {{ (n.from_user?.display_name || n.from_user?.fullname || '?').charAt(0).toUpperCase() }}
-                                    </div>
+                                <div class="w-12 h-12 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center" :class="n.type === 'nearby_heart_tap' ? 'bg-rose-100 text-rose-600' : 'bg-gray-100'">
+                                    <Heart v-if="n.type === 'nearby_heart_tap'" class="w-6 h-6" />
+                                    <template v-else>
+                                        <img
+                                            v-if="n.from_user?.profile_picture"
+                                            :src="profilePictureSrc(n.from_user.profile_picture)"
+                                            :alt="n.from_user.display_name"
+                                            class="w-full h-full object-cover"
+                                        />
+                                        <div v-else class="w-full h-full flex items-center justify-center text-gray-500 font-bold text-lg">
+                                            {{ (n.from_user?.display_name || n.from_user?.fullname || '?').charAt(0).toUpperCase() }}
+                                        </div>
+                                    </template>
                                 </div>
                                 <div class="flex-1 min-w-0">
                                     <p class="text-sm font-medium text-gray-900">{{ actionLine(n) }}</p>
@@ -539,6 +601,7 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick));
                             <div
                                 v-if="n.type === 'message_request'"
                                 class="flex gap-3 p-4 rounded-2xl bg-gray-800 text-white"
+                                @click.stop
                             >
                                 <div class="w-12 h-12 rounded-full overflow-hidden bg-gray-700 flex-shrink-0">
                                     <img
@@ -556,8 +619,22 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick));
                                     <p class="text-xs text-gray-400 mt-0.5">{{ formatDate(n.created_at) }}</p>
                                     <p class="text-xs text-gray-400 mt-1">{{ timeAgo(n.created_at) }}</p>
                                     <div class="flex gap-2 mt-3">
-                                        <button type="button" @click="declineMessageRequest(n)" class="px-4 py-2 rounded-xl bg-gray-600 text-white text-sm font-semibold hover:bg-gray-500">Decline</button>
-                                        <button type="button" @click="acceptMessageRequest(n)" class="px-4 py-2 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 text-white text-sm font-semibold hover:opacity-95">Accept</button>
+                                        <button
+                                            type="button"
+                                            class="px-4 py-2 rounded-xl bg-gray-600 text-white text-sm font-semibold hover:bg-gray-500 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+                                            :disabled="messageRequestActionId === n.id"
+                                            @click.stop="declineMessageRequest(n)"
+                                        >
+                                            {{ messageRequestActionId === n.id ? '…' : 'Decline' }}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="px-4 py-2 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 text-white text-sm font-semibold hover:opacity-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+                                            :disabled="messageRequestActionId === n.id"
+                                            @click.stop="acceptMessageRequest(n)"
+                                        >
+                                            {{ messageRequestActionId === n.id ? '…' : 'Accept' }}
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -567,16 +644,19 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick));
                                 @click="goToNotification(n)"
                                 class="w-full flex gap-3 p-4 rounded-2xl bg-white border border-gray-200 shadow-sm text-left hover:bg-gray-50 transition-colors"
                             >
-                                <div class="w-12 h-12 rounded-full overflow-hidden bg-gray-100 flex-shrink-0">
-                                    <img
-                                        v-if="n.from_user?.profile_picture"
-                                        :src="profilePictureSrc(n.from_user.profile_picture)"
-                                        :alt="n.from_user.display_name"
-                                        class="w-full h-full object-cover"
-                                    />
-                                    <div v-else class="w-full h-full flex items-center justify-center text-gray-500 font-bold text-lg">
-                                        {{ (n.from_user?.display_name || n.from_user?.fullname || '?').charAt(0).toUpperCase() }}
-                                    </div>
+                                <div class="w-12 h-12 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center" :class="n.type === 'nearby_heart_tap' ? 'bg-rose-100 text-rose-600' : 'bg-gray-100'">
+                                    <Heart v-if="n.type === 'nearby_heart_tap'" class="w-6 h-6" />
+                                    <template v-else>
+                                        <img
+                                            v-if="n.from_user?.profile_picture"
+                                            :src="profilePictureSrc(n.from_user.profile_picture)"
+                                            :alt="n.from_user.display_name"
+                                            class="w-full h-full object-cover"
+                                        />
+                                        <div v-else class="w-full h-full flex items-center justify-center text-gray-500 font-bold text-lg">
+                                            {{ (n.from_user?.display_name || n.from_user?.fullname || '?').charAt(0).toUpperCase() }}
+                                        </div>
+                                    </template>
                                 </div>
                                 <div class="flex-1 min-w-0">
                                     <p class="text-sm font-medium text-gray-900">{{ actionLine(n) }}</p>

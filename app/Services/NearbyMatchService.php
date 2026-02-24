@@ -9,7 +9,6 @@ use App\Events\RadarUpdated;
 use App\Models\Notification;
 use App\Models\User;
 use App\Models\AiProximityMatch;
-use App\Models\SwipeAction;
 use App\Models\UserMatch;
 
 class NearbyMatchService
@@ -83,8 +82,8 @@ class NearbyMatchService
     }
 
     /**
-     * When user B updates location: find all users A whom B has liked (dating intent) and who are within 10m of B.
-     * For each such A (same campus), recalc likers-within-10m count and broadcast ProximityAlarmTriggered so A's app can "ring".
+     * When user B updates location: find all users A within radius of B (same campus). For each A, broadcast
+     * ProximityAlarmTriggered with their current nearby count so their app can refresh (Find Your Match is location-based, no prior like required).
      */
     protected function broadcastProximityAlarmToAffectedUsers(User $userWhoMoved): void
     {
@@ -92,45 +91,16 @@ class NearbyMatchService
             return;
         }
 
-        $campus = $userWhoMoved->campus;
-        if ($campus === null || trim($campus) === '') {
-            return;
-        }
-
-        $targetIds = SwipeAction::query()
-            ->where('user_id', $userWhoMoved->id)
-            ->where('intent', SwipeAction::INTENT_DATING)
-            ->distinct()
-            ->pluck('target_user_id')
-            ->all();
-
+        $targetIds = $this->proximityMatch->getUserIdsWithinRadiusOf($userWhoMoved, 15.0);
         if ($targetIds === []) {
             return;
         }
 
-        $targets = User::query()
-            ->whereIn('id', $targetIds)
-            ->where('campus', $campus)
-            ->whereNotNull('latitude')
-            ->whereNotNull('longitude')
-            ->get(['id', 'latitude', 'longitude']);
-
-        $myLat = (float) $userWhoMoved->latitude;
-        $myLon = (float) $userWhoMoved->longitude;
-
-        foreach ($targets as $target) {
-            $dist = self::distanceMeters(
-                $myLat,
-                $myLon,
-                (float) $target->latitude,
-                (float) $target->longitude
-            );
-            if ($dist !== null && $dist <= 10.0) {
-                $targetUser = User::find($target->id);
-                if ($targetUser) {
-                    $count = $this->proximityMatch->getLikersWithin10mCount($targetUser);
-                    broadcast(new ProximityAlarmTriggered($targetUser, $count));
-                }
+        foreach ($targetIds as $targetId) {
+            $targetUser = User::find($targetId);
+            if ($targetUser) {
+                $count = $this->proximityMatch->getLikersWithin10mCount($targetUser);
+                broadcast(new ProximityAlarmTriggered($targetUser, $count));
             }
         }
     }

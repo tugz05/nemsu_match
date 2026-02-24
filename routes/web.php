@@ -4,6 +4,7 @@ use App\Http\Controllers\AccountController;
 use App\Http\Controllers\Api\AutocompleteController;
 use App\Http\Controllers\Auth\NEMSUOAuthController;
 use App\Http\Controllers\Auth\AdminAuthController;
+use App\Http\Controllers\AnonymousChatController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\GalleryController;
 use App\Http\Controllers\LeaderboardController;
@@ -88,6 +89,10 @@ Route::get('api/proximity-match', [ProximityMatchController::class, 'data'])
     ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('proximity-match.api');
 Route::post('api/proximity-match/reset', [ProximityMatchController::class, 'reset'])
     ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('proximity-match.reset');
+Route::post('api/proximity-match/notify-nearby', [ProximityMatchController::class, 'notifyNearby'])
+    ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('proximity-match.notify-nearby');
+Route::post('api/proximity-match/tap-back', [ProximityMatchController::class, 'tapBack'])
+    ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('proximity-match.tap-back');
 Route::get('api/proximity-match/radar', [ProximityMatchController::class, 'radar'])
     ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('proximity-match.radar');
 
@@ -140,9 +145,31 @@ Route::middleware(['auth', 'verified', 'profile.completed'])->group(function () 
     Route::post('api/announcements', [AnnouncementController::class, 'store'])->middleware('admin')->name('announcements.store');
 });
 
+// Redirect legacy /anonymous-chat to Chat page Match Chat tab
+Route::get('anonymous-chat', function () {
+    $room = request()->query('room');
+    $url = '/chat?tab=matchchat' . ($room ? '&room=' . urlencode($room) : '');
+    return redirect($url);
+})->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('anonymous-chat');
+Route::get('api/anonymous-chat/rooms', [AnonymousChatController::class, 'index'])
+    ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('anonymous-chat.rooms');
+Route::get('api/anonymous-chat/rooms/unread-count', [AnonymousChatController::class, 'unreadCount'])
+    ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('anonymous-chat.unread-count');
+Route::get('api/anonymous-chat/rooms/{room}/messages', [AnonymousChatController::class, 'messages'])
+    ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('anonymous-chat.messages');
+Route::post('api/anonymous-chat/rooms/{room}/messages', [AnonymousChatController::class, 'sendMessage'])
+    ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('anonymous-chat.send');
+Route::post('api/anonymous-chat/rooms/{room}/agree-reveal', [AnonymousChatController::class, 'agreeReveal'])
+    ->middleware(['auth', 'verified', 'profile.completed', 'profile.picture', 'account.active'])->name('anonymous-chat.agree-reveal');
+
 Route::middleware(['auth', 'verified', 'profile.completed'])->group(function () {
     Route::get('chat', function () {
-        return Inertia::render('Chat', ['conversationId' => request()->query('conversation'), 'userId' => request()->query('user')]);
+        return Inertia::render('Chat', [
+            'conversationId' => request()->query('conversation'),
+            'userId' => request()->query('user'),
+            'tab' => request()->query('tab'),
+            'room' => request()->query('room'),
+        ]);
     })->name('chat');
     Route::get('api/conversations', [ChatController::class, 'index'])->name('chat.conversations');
     Route::get('api/conversations/unread-count', [ChatController::class, 'unreadCount'])->name('chat.unread-count');

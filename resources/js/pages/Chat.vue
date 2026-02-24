@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
-import { ChevronLeft, Send, MessageCircle, UserPlus, Check, X, MoreVertical, Ban, Flag, Search, PencilLine, Camera, SlidersHorizontal, Paperclip, Smile } from 'lucide-vue-next';
+import { ChevronLeft, Send, MessageCircle, UserPlus, Check, X, MoreVertical, Ban, Flag, Search, PencilLine, Camera, SlidersHorizontal, Paperclip, Smile, UserCircle } from 'lucide-vue-next';
 import { useCsrfToken } from '@/composables/useCsrfToken';
 import { profilePictureSrc } from '@/composables/useProfilePictureSrc';
 import { BottomNav } from '@/components/feed';
@@ -44,7 +44,7 @@ interface MessageRequestItem {
     created_at: string;
 }
 
-const props = defineProps<{ conversationId?: string | null; userId?: string | null }>();
+const props = defineProps<{ conversationId?: string | null; userId?: string | null; tab?: string | null; room?: string | null }>();
 
 const getCsrfToken = useCsrfToken();
 const conversations = ref<ConversationItem[]>([]);
@@ -53,7 +53,7 @@ const messages = ref<MessageItem[]>([]);
 const loadingConversations = ref(true);
 const loadingRequests = ref(false);
 const loadingMessages = ref(false);
-const activeTab = ref<'chats' | 'requests'>('chats');
+const activeTab = ref<'chats' | 'requests' | 'matchchat'>('chats');
 const selectedConversationId = ref<number | null>(null);
 const currentConversation = ref<{ id: number; other_user: OtherUser } | null>(null);
 const messagePage = ref(1);
@@ -94,6 +94,47 @@ let presenceChannel: any = null;
 let newMessageSearchDebounce: ReturnType<typeof setTimeout> | null = null;
 
 const page = usePage();
+
+/** Match Chat (anonymous) — rooms and messages */
+interface AnonymousRoomItem {
+    id: number;
+    display_name?: string;
+    last_message: { id: number; sender_id: number; body: string; created_at: string } | null;
+    unread_count: number;
+    updated_at: string;
+}
+interface AnonymousOtherUser {
+    id: number;
+    display_name: string;
+    fullname: string;
+    profile_picture: string | null;
+    profile_url: string;
+}
+interface AnonymousRoomInfo {
+    display_name: string;
+    me_agreed_to_reveal: boolean;
+    them_agreed_to_reveal: boolean;
+    identities_revealed: boolean;
+    other_user: AnonymousOtherUser | null;
+}
+interface AnonymousMessageItem {
+    id: number;
+    user_id: number;
+    is_me: boolean;
+    body: string;
+    read_at: string | null;
+    created_at: string;
+}
+const anonymousRooms = ref<AnonymousRoomItem[]>([]);
+const anonymousMessages = ref<AnonymousMessageItem[]>([]);
+const selectedAnonymousRoomId = ref<number | null>(null);
+const selectedAnonymousRoomInfo = ref<AnonymousRoomInfo | null>(null);
+const anonymousRevealSending = ref(false);
+const loadingAnonymousRooms = ref(false);
+const loadingAnonymousMessages = ref(false);
+const anonymousNewBody = ref('');
+const anonymousSending = ref(false);
+const matchChatUnreadTotal = ref(0);
 const currentUserId = computed(() => (page.props.auth?.user as { id?: number } | undefined)?.id ?? 0);
 
 /** Filter conversations by name or last message body */
@@ -291,6 +332,124 @@ async function fetchRequests() {
     } finally {
         loadingRequests.value = false;
     }
+}
+
+async function fetchAnonymousRooms() {
+    loadingAnonymousRooms.value = true;
+    try {
+        const res = await fetch('/api/anonymous-chat/rooms', {
+            credentials: 'same-origin',
+            headers: { 'X-CSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
+        });
+        if (res.ok) {
+            const data = await res.json();
+            const list = Array.isArray(data.data) ? data.data : [];
+            anonymousRooms.value = list;
+            matchChatUnreadTotal.value = list.reduce((s: number, r: AnonymousRoomItem) => s + (r.unread_count ?? 0), 0);
+        }
+    } finally {
+        loadingAnonymousRooms.value = false;
+    }
+}
+
+async function fetchAnonymousMessages(roomId: number) {
+    loadingAnonymousMessages.value = true;
+    selectedAnonymousRoomInfo.value = null;
+    try {
+        const res = await fetch(`/api/anonymous-chat/rooms/${roomId}/messages`, {
+            credentials: 'same-origin',
+            headers: { 'X-CSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
+        });
+        if (res.ok) {
+            const data = await res.json();
+            anonymousMessages.value = Array.isArray(data.data) ? data.data : [];
+            if (data.room) {
+                selectedAnonymousRoomInfo.value = {
+                    display_name: data.room.display_name ?? 'Anonymous match',
+                    me_agreed_to_reveal: !!data.room.me_agreed_to_reveal,
+                    them_agreed_to_reveal: !!data.room.them_agreed_to_reveal,
+                    identities_revealed: !!data.room.identities_revealed,
+                    other_user: data.room.other_user ?? null,
+                };
+            }
+        }
+        await fetchAnonymousRooms();
+    } finally {
+        loadingAnonymousMessages.value = false;
+    }
+}
+
+function openAnonymousRoom(room: AnonymousRoomItem) {
+    selectedAnonymousRoomId.value = room.id;
+    fetchAnonymousMessages(room.id);
+}
+
+function backToAnonymousList() {
+    selectedAnonymousRoomId.value = null;
+    selectedAnonymousRoomInfo.value = null;
+    anonymousMessages.value = [];
+    fetchAnonymousRooms();
+}
+
+async function agreeRevealAnonymous() {
+    const roomId = selectedAnonymousRoomId.value;
+    if (!roomId || anonymousRevealSending.value) return;
+    anonymousRevealSending.value = true;
+    try {
+        const res = await fetch(`/api/anonymous-chat/rooms/${roomId}/agree-reveal`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': getCsrfToken(),
+                Accept: 'application/json',
+            },
+            body: JSON.stringify({}),
+        });
+        if (res.ok && selectedAnonymousRoomInfo.value) {
+            const data = await res.json();
+            selectedAnonymousRoomInfo.value = {
+                ...selectedAnonymousRoomInfo.value,
+                me_agreed_to_reveal: true,
+                them_agreed_to_reveal: !!data.them_agreed_to_reveal,
+                identities_revealed: !!data.identities_revealed,
+                other_user: data.other_user ?? selectedAnonymousRoomInfo.value.other_user,
+            };
+        }
+    } finally {
+        anonymousRevealSending.value = false;
+    }
+}
+
+async function sendAnonymousMessage() {
+    const roomId = selectedAnonymousRoomId.value;
+    const body = anonymousNewBody.value.trim();
+    if (!roomId || !body || anonymousSending.value) return;
+    anonymousSending.value = true;
+    anonymousNewBody.value = '';
+    try {
+        const res = await fetch(`/api/anonymous-chat/rooms/${roomId}/messages`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': getCsrfToken(),
+                Accept: 'application/json',
+            },
+            body: JSON.stringify({ body }),
+        });
+        if (res.ok) {
+            const data = await res.json();
+            if (data.data) anonymousMessages.value = [...anonymousMessages.value, data.data];
+        }
+    } finally {
+        anonymousSending.value = false;
+    }
+}
+
+function formatAnonymousTime(dateStr: string) {
+    const d = new Date(dateStr);
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
 async function fetchNewMessageUserSearch() {
@@ -813,6 +972,25 @@ watch(newMessageUserSearch, () => {
 });
 
 watch(
+    () => [props.tab, props.room],
+    ([tab, room]) => {
+        if (tab === 'matchchat') {
+            activeTab.value = 'matchchat';
+            const roomId = room ? parseInt(room as string, 10) : null;
+            if (roomId && Number.isFinite(roomId)) {
+                const r = anonymousRooms.value.find((x) => x.id === roomId);
+                if (r) openAnonymousRoom(r);
+                else {
+                    selectedAnonymousRoomId.value = roomId;
+                    fetchAnonymousMessages(roomId);
+                }
+            }
+        }
+    },
+    { immediate: false },
+);
+
+watch(
     () => [props.conversationId, props.userId],
     async ([convId, userId]) => {
         if (userId) {
@@ -907,9 +1085,23 @@ function handleClickOutside(event: MouseEvent) {
 onMounted(() => {
     fetchConversations();
     fetchRequests();
-    subscribeToPresence(); // Subscribe to online presence
+    subscribeToPresence();
     document.addEventListener('click', handleClickOutside);
     document.addEventListener('click', handleClickOutsideEmoji);
+    if (props.tab === 'matchchat') {
+        activeTab.value = 'matchchat';
+        fetchAnonymousRooms().then(() => {
+            const roomId = props.room ? parseInt(props.room as string, 10) : null;
+            if (roomId && Number.isFinite(roomId)) {
+                const room = anonymousRooms.value.find((r) => r.id === roomId);
+                if (room) openAnonymousRoom(room);
+                else {
+                    selectedAnonymousRoomId.value = roomId;
+                    fetchAnonymousMessages(roomId);
+                }
+            }
+        });
+    }
 });
 
 onUnmounted(() => {
@@ -969,6 +1161,17 @@ onUnmounted(() => {
                     Requests
                     <span v-if="requests.length > 0" class="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 bg-blue-600 text-white text-xs font-bold rounded-full flex items-center justify-center">
                         {{ requests.length > 99 ? '99+' : requests.length }}
+                    </span>
+                </button>
+                <button
+                    type="button"
+                    class="px-4 py-2 rounded-full text-sm font-semibold transition-colors relative"
+                    :class="activeTab === 'matchchat' ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'"
+                    @click="activeTab = 'matchchat'; fetchAnonymousRooms()"
+                >
+                    Match Chat
+                    <span v-if="matchChatUnreadTotal > 0" class="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 bg-rose-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                        {{ matchChatUnreadTotal > 99 ? '99+' : matchChatUnreadTotal }}
                     </span>
                 </button>
             </div>
@@ -1086,6 +1289,98 @@ onUnmounted(() => {
             </div>
         </div>
 
+        <!-- Match Chat room (anonymous messages) -->
+        <div
+            v-else-if="activeTab === 'matchchat' && selectedAnonymousRoomId"
+            class="flex-1 flex flex-col overflow-hidden"
+        >
+            <header class="bg-white border-b border-gray-200 shrink-0">
+                <div class="px-4 py-3 flex items-center gap-2">
+                    <button type="button" class="p-2 -ml-2 rounded-full hover:bg-gray-100 shrink-0" aria-label="Back" @click="backToAnonymousList">
+                        <ChevronLeft class="w-5 h-5 text-gray-700" />
+                    </button>
+                    <p class="flex-1 font-semibold text-gray-900 truncate">{{ selectedAnonymousRoomInfo?.display_name ?? 'Anonymous match' }}</p>
+                    <!-- Reveal identity: icon button only after 100+ messages -->
+                    <button
+                        v-if="anonymousMessages.length > 100 && selectedAnonymousRoomInfo && !selectedAnonymousRoomInfo.identities_revealed && !selectedAnonymousRoomInfo.me_agreed_to_reveal"
+                        type="button"
+                        class="p-2 rounded-full hover:bg-rose-50 text-rose-600 hover:text-rose-700 transition-colors shrink-0"
+                        :disabled="anonymousRevealSending"
+                        title="Agree to reveal identity (both must agree)"
+                        aria-label="Agree to reveal identity"
+                        @click="agreeRevealAnonymous"
+                    >
+                        <UserCircle class="w-5 h-5" :class="{ 'opacity-50': anonymousRevealSending }" />
+                    </button>
+                    <span
+                        v-else-if="anonymousMessages.length > 100 && selectedAnonymousRoomInfo?.me_agreed_to_reveal && !selectedAnonymousRoomInfo.identities_revealed"
+                        class="p-2 text-rose-500 shrink-0"
+                        title="You've agreed to reveal — waiting for them"
+                    >
+                        <UserCircle class="w-5 h-5" />
+                    </span>
+                    <button
+                        v-else-if="selectedAnonymousRoomInfo?.identities_revealed && selectedAnonymousRoomInfo.other_user"
+                        type="button"
+                        class="p-1.5 rounded-full hover:bg-gray-100 shrink-0 flex items-center gap-1.5"
+                        title="View profile"
+                        @click="router.visit(selectedAnonymousRoomInfo.other_user!.profile_url)"
+                    >
+                        <div class="w-7 h-7 rounded-full overflow-hidden bg-gray-200 flex-shrink-0">
+                            <img
+                                v-if="selectedAnonymousRoomInfo.other_user.profile_picture"
+                                :src="profilePictureSrc(selectedAnonymousRoomInfo.other_user.profile_picture)"
+                                :alt="selectedAnonymousRoomInfo.other_user.display_name"
+                                class="w-full h-full object-cover"
+                            />
+                            <span v-else class="w-full h-full flex items-center justify-center text-gray-600 font-bold text-xs">
+                                {{ (selectedAnonymousRoomInfo.other_user.display_name || '?').charAt(0).toUpperCase() }}
+                            </span>
+                        </div>
+                        <span class="text-sm font-medium text-gray-700 max-w-[80px] truncate">{{ selectedAnonymousRoomInfo.other_user.display_name }}</span>
+                    </button>
+                </div>
+            </header>
+            <div class="flex-1 overflow-y-auto p-4 space-y-3">
+                <div v-if="loadingAnonymousMessages" class="flex justify-center py-8"><div class="w-6 h-6 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" /></div>
+                <template v-else>
+                    <div
+                        v-for="m in anonymousMessages"
+                        :key="m.id"
+                        class="flex"
+                        :class="m.is_me ? 'justify-end' : 'justify-start'"
+                    >
+                        <div
+                            class="max-w-[85%] rounded-2xl px-4 py-2.5 text-sm"
+                            :class="m.is_me ? 'bg-blue-600 text-white rounded-br-md' : 'bg-gray-100 text-gray-900 rounded-bl-md'"
+                        >
+                            <span v-if="!m.is_me" class="text-[10px] text-gray-500 block mb-0.5">Them</span>
+                            <p class="whitespace-pre-wrap break-words">{{ m.body }}</p>
+                            <p class="text-[10px] mt-1 opacity-75">{{ formatAnonymousTime(m.created_at) }}</p>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            <div class="p-4 border-t border-gray-200 flex gap-2 bg-white">
+                <input
+                    v-model="anonymousNewBody"
+                    type="text"
+                    placeholder="Message…"
+                    class="flex-1 rounded-xl bg-gray-100 border-0 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-rose-500"
+                    maxlength="2000"
+                    @keydown.enter.prevent="sendAnonymousMessage"
+                >
+                <button
+                    type="button"
+                    class="p-2.5 rounded-xl bg-rose-500 text-white hover:bg-rose-600 disabled:opacity-50 transition-colors shrink-0"
+                    :disabled="!anonymousNewBody.trim() || anonymousSending"
+                    @click="sendAnonymousMessage"
+                >
+                    <Send class="w-5 h-5" />
+                </button>
+            </div>
+        </div>
+
         <!-- List view -->
         <div v-else-if="!currentConversation" class="flex-1 overflow-y-auto min-h-0">
             <div v-if="activeTab === 'chats'" class="max-w-2xl mx-auto px-4">
@@ -1161,6 +1456,41 @@ onUnmounted(() => {
                                 {{ c.unread_count > 99 ? '99+' : c.unread_count }}
                             </span>
                             <span v-else class="w-6 h-6 flex-shrink-0" aria-hidden="true" />
+                        </div>
+                    </li>
+                </ul>
+            </div>
+            <div v-else-if="activeTab === 'matchchat'" class="max-w-2xl mx-auto px-4">
+                <p class="text-sm text-gray-500 mb-4">Chat with people who tapped you and you tapped back. No profiles — fully anonymous.</p>
+                <div v-if="loadingAnonymousRooms" class="flex justify-center py-16">
+                    <div class="w-8 h-8 border-4 border-rose-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+                <div v-else-if="anonymousRooms.length === 0" class="py-16 text-center text-gray-500">
+                    <MessageCircle class="w-14 h-14 mx-auto mb-4 text-gray-300" />
+                    <p class="font-medium text-gray-700">No match chats yet</p>
+                    <p class="text-sm mt-1 text-gray-500">Tap someone on Find Your Match, then tap back when they tap you.</p>
+                </div>
+                <ul v-else class="divide-y divide-gray-100 -mx-4">
+                    <li
+                        v-for="room in anonymousRooms"
+                        :key="room.id"
+                        class="flex items-center gap-3 px-4 py-3.5 hover:bg-gray-50 cursor-pointer active:bg-gray-100 transition-colors"
+                        @click="openAnonymousRoom(room)"
+                    >
+                        <div class="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center flex-shrink-0">
+                            <MessageCircle class="w-6 h-6 text-rose-600" />
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="font-semibold text-gray-900">{{ room.display_name || 'Anonymous match' }}</p>
+                            <p class="text-sm text-gray-500 truncate mt-0.5">{{ room.last_message ? room.last_message.body : 'No messages yet' }}</p>
+                        </div>
+                        <div class="flex flex-col items-end gap-1 shrink-0">
+                            <span
+                                v-if="room.unread_count > 0"
+                                class="min-w-[22px] h-5 px-1.5 rounded-full bg-rose-500 text-white text-xs font-bold flex items-center justify-center"
+                            >
+                                {{ room.unread_count > 99 ? '99+' : room.unread_count }}
+                            </span>
                         </div>
                     </li>
                 </ul>
