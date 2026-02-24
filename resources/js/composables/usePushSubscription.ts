@@ -7,19 +7,47 @@ function getCsrfToken(): string {
     return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 }
 
+/** Web Push requires HTTPS (or localhost). Avoids "Registration failed - push service error" on HTTP. */
+function isSecureContextForPush(): boolean {
+    if (typeof window === 'undefined') return false;
+    return window.isSecureContext === true;
+}
+
+/** VAPID public key must decode to 65 bytes (uncompressed P-256). Returns null if invalid. */
+function parseVapidPublicKey(vapidPublicKey: string): Uint8Array | null {
+    try {
+        const padding = '='.repeat((4 - (vapidPublicKey.length % 4)) % 4);
+        const base64 = (vapidPublicKey + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+        for (let i = 0; i < rawData.length; ++i) {
+            outputArray[i] = rawData.charCodeAt(i);
+        }
+        if (outputArray.length !== 65) return null;
+        return outputArray;
+    } catch {
+        return null;
+    }
+}
+
 /**
  * Register the service worker and subscribe to push; send subscription to backend.
  * Call when the user has granted notification permission and enabled notifications in app.
+ * Skips push when not in a secure context (e.g. HTTP) or when VAPID key is invalid, so in-tab notifications still work.
  */
 export async function subscribeToPush(vapidPublicKey: string | null): Promise<boolean> {
     if (typeof window === 'undefined' || !vapidPublicKey || !('serviceWorker' in navigator) || !('PushManager' in window)) {
         return false;
     }
+    if (!isSecureContextForPush()) return false;
+
+    const applicationServerKey = parseVapidPublicKey(vapidPublicKey);
+    if (!applicationServerKey) return false;
+
     try {
         const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
         await reg.update();
         let sub = await reg.pushManager.getSubscription();
-        const applicationServerKey = urlBase64ToUint8Array(vapidPublicKey);
         if (!sub) {
             sub = await reg.pushManager.subscribe({
                 userVisibleOnly: true,
@@ -44,7 +72,11 @@ export async function subscribeToPush(vapidPublicKey: string | null): Promise<bo
         });
         return res.ok;
     } catch (e) {
-        console.warn('[Push] subscribe failed', e);
+        const err = e as { name?: string; message?: string };
+        const isPushServiceError =
+            err?.name === 'AbortError' ||
+            (typeof err?.message === 'string' && /push service|registration failed/i.test(err.message));
+        if (!isPushServiceError) console.warn('[Push] subscribe failed', e);
         return false;
     }
 }
@@ -75,18 +107,7 @@ export async function unsubscribeFromPush(): Promise<void> {
     }
 }
 
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-    const rawData = window.atob(base64);
-    const outputArray = new Uint8Array(rawData.length);
-    for (let i = 0; i < rawData.length; ++i) {
-        outputArray[i] = rawData.charCodeAt(i);
-    }
-    return outputArray;
-}
-
 export function isPushSupported(): boolean {
     if (typeof window === 'undefined') return false;
-    return 'serviceWorker' in navigator && 'PushManager' in window;
+    return window.isSecureContext === true && 'serviceWorker' in navigator && 'PushManager' in window;
 }
