@@ -6,6 +6,7 @@ import { useCsrfToken } from '@/composables/useCsrfToken';
 import { profilePictureSrc } from '@/composables/useProfilePictureSrc';
 import { BottomNav } from '@/components/feed';
 import { BlockUserConfirmDialog, ReportConversationDialog, SuccessToast, EmojiPicker } from '@/components/chat';
+import TutorialPrompt from '@/components/TutorialPrompt.vue';
 import { getEcho } from '@/echo';
 
 interface OtherUser {
@@ -1461,6 +1462,12 @@ onUnmounted(() => {
                 </ul>
             </div>
             <div v-else-if="activeTab === 'matchchat'" class="max-w-2xl mx-auto px-4">
+                <TutorialPrompt
+                    storage-key="nemsu_match_tutorial_anonymous_chat"
+                    title="Match Chat"
+                    body="After a mutual tap on Find Your Match, you chat here with a random nickname. Unlock identity reveal together after 100+ messages."
+                    arrow-side="bottom"
+                />
                 <p class="text-sm text-gray-500 mb-4">Chat with people who tapped you and you tapped back. No profiles — fully anonymous.</p>
                 <div v-if="loadingAnonymousRooms" class="flex justify-center py-16">
                     <div class="w-8 h-8 border-4 border-rose-500 border-t-transparent rounded-full animate-spin" />

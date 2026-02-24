@@ -3,6 +3,7 @@ import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
 import { Head, router, usePage } from '@inertiajs/vue3';
 import { Heart, ChevronLeft, MapPin } from 'lucide-vue-next';
 import { BottomNav } from '@/components/feed';
+import TutorialPrompt from '@/components/TutorialPrompt.vue';
 import { useCsrfToken } from '@/composables/useCsrfToken';
 import { getEcho } from '@/echo';
 
@@ -484,6 +485,13 @@ onBeforeUnmount(() => {
         </header>
 
         <div class="find-match-container space-y-2.5 pt-2">
+            <TutorialPrompt
+                storage-key="nemsu_match_tutorial_find_your_match"
+                title="How Find Your Match works"
+                body="See who's nearby as hearts on this screen. Tap a heart to show interest. If they tap you back, you're matched and can chat in Match Chat."
+                :active="!calculating && !!data?.campus"
+                arrow-side="bottom"
+            />
             <Transition name="banner">
                 <div
                     v-if="showLocationDeniedBanner"

@@ -5,6 +5,7 @@ import { User, Mail, MapPin, GraduationCap, Calendar, Heart, Book, Target, Troph
 import TagsInput from '@/components/ui/tags-input/TagsInput.vue';
 import { profilePictureSrc } from '@/composables/useProfilePictureSrc';
 import { useBrowserNotifications } from '@/composables/useBrowserNotifications';
+import TutorialPrompt from '@/components/TutorialPrompt.vue';
 import { useCsrfToken } from '@/composables/useCsrfToken';
 import { BottomNav, FullscreenImageViewer } from '@/components/feed';
 
@@ -585,7 +586,13 @@ onMounted(() => {
                 </div>
 
                 <!-- Browser notifications -->
-                <div class="bg-white rounded-2xl shadow-lg p-6">
+                <div class="bg-white rounded-2xl shadow-lg p-6" id="account-browser-notifications-section">
+                    <TutorialPrompt
+                        storage-key="nemsu_match_tutorial_browser_notifications"
+                        title="Browser notifications"
+                        body="Get alerts for new messages, matches, and when someone taps your heart—even when the tab is in the background. Turn on below to stay in the loop."
+                        arrow-side="bottom"
+                    />
                     <h3 class="text-lg font-bold text-gray-900 mb-2 flex items-center gap-2">
                         <Bell class="w-5 h-5 text-blue-600" />
                         Browser notifications
